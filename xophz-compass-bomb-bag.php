@@ -17,13 +17,14 @@
  * Plugin Name:       Xophz Bomb Bag News Drip
  * Plugin URI:        http://example.com/xophz-compass-bomb-bag-uri/
  * Description:       Send email blasts, schedule Newsletter campaigns, etc. 
- * Version:           26.4.13.483
+ * Version:           26.4.14.1311
  * Author:            Hall of the Gods, Inc.
  * Author URI:        http://example.com/
  * License:           GPL-2.0+
  * License URI:       http://www.gnu.org/licenses/gpl-2.0.txt
  * Text Domain:       xophz-compass-bomb-bag
  * Domain Path:       /languages
+ * Update URI:        https://github.com/HalloftheGods/xophz-compass-bomb-bag
  * Color:             #ED55A9
  */
  // If this file is called directly, abort.
@@ -36,7 +37,7 @@ if ( ! defined( 'WPINC' ) ) {
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-define( 'XOPHZ_COMPASS_BOMB_BAG_VERSION', '26.4.13.483' );
+define( 'XOPHZ_COMPASS_BOMB_BAG_VERSION', '26.4.14.1311' );
 
 /**
  * The code that runs during plugin activation.
