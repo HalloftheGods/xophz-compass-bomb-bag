@@ -14,6 +14,7 @@
  *
  * @wordpress-plugin
  * Category:          Trajectory
+ * Group:             MA
  * Plugin Name:       Xophz Bomb Bag News Drip
  * Plugin URI:        https://github.com/HalloftheGods/xophz-compass-bomb-bag
  * Description:       Send email blasts, schedule Newsletter campaigns, etc. 
