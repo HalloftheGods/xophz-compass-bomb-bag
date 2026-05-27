@@ -133,7 +133,17 @@ class Xophz_Compass_Bomb_Bag {
 
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-bomb-bag-drip-rest.php';
 
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-bomb-bag-journey-rest.php';
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-bomb-bag-segment-rest.php';
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-bomb-bag-tag-rest.php';
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-bomb-bag-segment-compiler.php';
+
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-bomb-bag-template-rest.php';
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-xophz-compass-bomb-bag-woocommerce.php';
+
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-bomb-bag-forms-rest.php';
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-bomb-bag-shortcodes.php';
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-xophz-compass-bomb-bag-forminator.php';
 
 		$this->loader = new Xophz_Compass_Bomb_Bag_Loader();
 
@@ -192,12 +202,40 @@ class Xophz_Compass_Bomb_Bag {
 		$drip_rest = new Xophz_Compass_Bomb_Bag_Drip_Rest();
 		$this->loader->add_action( 'rest_api_init', $drip_rest, 'register_routes' );
 
+		$journey_rest = new Xophz_Compass_Bomb_Bag_Journey_Rest();
+		$this->loader->add_action( 'rest_api_init', $journey_rest, 'register_routes' );
+
+		$segment_rest = new Xophz_Compass_Bomb_Bag_Segment_Rest();
+		$this->loader->add_action( 'rest_api_init', $segment_rest, 'register_routes' );
+
+		$tag_rest = new Xophz_Compass_Bomb_Bag_Tag_Rest();
+		$this->loader->add_action( 'rest_api_init', $tag_rest, 'register_routes' );
+
 		$template_rest = new Xophz_Compass_Bomb_Bag_Template_Rest();
 		$this->loader->add_action( 'rest_api_init', $template_rest, 'register_routes' );
+
+		$forms_rest = new Xophz_Compass_Bomb_Bag_Forms_Rest();
+		$this->loader->add_action( 'rest_api_init', $forms_rest, 'register_routes' );
+
+		$shortcodes = new Xophz_Compass_Bomb_Bag_Shortcodes();
+		$this->loader->add_action( 'init', $shortcodes, 'register' );
+
+		// Initialize WooCommerce Integration
+		if ( class_exists( 'WooCommerce' ) ) {
+			$woocommerce_integration = new Xophz_Compass_Bomb_Bag_WooCommerce();
+			$woocommerce_integration->init();
+		}
+
+		// Initialize Forminator Integration
+		if ( class_exists( 'Forminator' ) || class_exists( 'Forminator_API' ) ) {
+			$forminator_integration = new Xophz_Compass_Bomb_Bag_Forminator();
+			$forminator_integration->init();
+		}
 
 		$email_handler = new Xophz_Compass_Bomb_Bag_Email_Handler();
 		add_action( 'bomb_bag_send_emails', array( $email_handler, 'process_campaign_emails' ) );
 		add_action( 'bomb_bag_process_drips', array( $email_handler, 'process_drip_emails' ) );
+		add_action( 'bomb_bag_process_journeys', array( $email_handler, 'process_journey_enrollments' ) );
 		add_action( 'bomb_bag_check_scheduled', array( $this, 'check_scheduled_campaigns' ) );
 
 		add_filter( 'cron_schedules', array( $this, 'add_cron_intervals' ) );
@@ -220,6 +258,10 @@ class Xophz_Compass_Bomb_Bag {
 	public function schedule_crons() {
 		if ( ! wp_next_scheduled( 'bomb_bag_process_drips' ) ) {
 			wp_schedule_event( time(), 'hourly', 'bomb_bag_process_drips' );
+		}
+
+		if ( ! wp_next_scheduled( 'bomb_bag_process_journeys' ) ) {
+			wp_schedule_event( time(), 'hourly', 'bomb_bag_process_journeys' );
 		}
 
 		if ( ! wp_next_scheduled( 'bomb_bag_check_scheduled' ) ) {

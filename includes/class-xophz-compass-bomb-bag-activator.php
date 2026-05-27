@@ -30,6 +30,16 @@ class Xophz_Compass_Bomb_Bag_Activator {
 		$drip_steps_table       = $wpdb->prefix . 'bomb_bag_drip_steps';
 		$drip_enrollments_table = $wpdb->prefix . 'bomb_bag_drip_enrollments';
 		$templates_table        = $wpdb->prefix . 'bomb_bag_templates';
+		
+		// Phase 1 & 2 Modnernization additions
+		$journeys_table            = $wpdb->prefix . 'bomb_bag_journeys';
+		$journey_enrollments_table = $wpdb->prefix . 'bomb_bag_journey_enrollments';
+		$segments_table            = $wpdb->prefix . 'bomb_bag_segments';
+		$tags_table                = $wpdb->prefix . 'bomb_bag_tags';
+		$subscriber_tags_table     = $wpdb->prefix . 'bomb_bag_subscriber_tags';
+
+		// Phase 3 additions
+		$campaign_variants_table   = $wpdb->prefix . 'bomb_bag_campaign_variants';
 
 		$sql_campaigns = "CREATE TABLE IF NOT EXISTS $campaigns_table (
 			id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -93,7 +103,9 @@ class Xophz_Compass_Bomb_Bag_Activator {
 		$sql_emails = "CREATE TABLE IF NOT EXISTS $emails_table (
 			id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
 			campaign_id BIGINT(20) UNSIGNED DEFAULT NULL,
+			variant_id BIGINT(20) UNSIGNED DEFAULT NULL,
 			drip_step_id BIGINT(20) UNSIGNED DEFAULT NULL,
+			journey_node_id VARCHAR(64) DEFAULT NULL,
 			subscriber_id BIGINT(20) UNSIGNED NOT NULL,
 			status ENUM('queued', 'sent', 'failed', 'bounced') DEFAULT 'queued',
 			tracking_id VARCHAR(64) NOT NULL,
@@ -105,7 +117,9 @@ class Xophz_Compass_Bomb_Bag_Activator {
 			PRIMARY KEY (id),
 			UNIQUE KEY tracking_id (tracking_id),
 			KEY campaign_id (campaign_id),
+			KEY variant_id (variant_id),
 			KEY drip_step_id (drip_step_id),
+			KEY journey_node_id (journey_node_id),
 			KEY subscriber_id (subscriber_id),
 			KEY status (status)
 		) $charset_collate;";
@@ -189,6 +203,83 @@ class Xophz_Compass_Bomb_Bag_Activator {
 			KEY is_default (is_default)
 		) $charset_collate;";
 
+		$sql_journeys = "CREATE TABLE IF NOT EXISTS $journeys_table (
+			id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+			name VARCHAR(255) NOT NULL,
+			description TEXT,
+			status ENUM('active', 'paused', 'draft') DEFAULT 'draft',
+			trigger_type VARCHAR(100) DEFAULT 'manual',
+			nodes_json LONGTEXT,
+			edges_json LONGTEXT,
+			total_enrolled INT UNSIGNED DEFAULT 0,
+			total_completed INT UNSIGNED DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			KEY status (status)
+		) $charset_collate;";
+
+		$sql_journey_enrollments = "CREATE TABLE IF NOT EXISTS $journey_enrollments_table (
+			id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+			journey_id BIGINT(20) UNSIGNED NOT NULL,
+			subscriber_id BIGINT(20) UNSIGNED NOT NULL,
+			current_node_id VARCHAR(255) DEFAULT NULL,
+			status ENUM('active', 'completed', 'paused', 'cancelled') DEFAULT 'active',
+			state_data LONGTEXT,
+			enrolled_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			completed_at DATETIME DEFAULT NULL,
+			next_evaluation_at DATETIME DEFAULT NULL,
+			PRIMARY KEY (id),
+			KEY journey_id (journey_id),
+			KEY subscriber_id (subscriber_id),
+			KEY status (status),
+			KEY next_evaluation_at (next_evaluation_at)
+		) $charset_collate;";
+
+		$sql_segments = "CREATE TABLE IF NOT EXISTS $segments_table (
+			id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+			name VARCHAR(255) NOT NULL,
+			description TEXT,
+			rules_json LONGTEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (id)
+		) $charset_collate;";
+
+		$sql_tags = "CREATE TABLE IF NOT EXISTS $tags_table (
+			id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+			name VARCHAR(255) NOT NULL,
+			description TEXT,
+			color VARCHAR(32) DEFAULT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			UNIQUE KEY name (name)
+		) $charset_collate;";
+
+		$sql_subscriber_tags = "CREATE TABLE IF NOT EXISTS $subscriber_tags_table (
+			tag_id BIGINT(20) UNSIGNED NOT NULL,
+			subscriber_id BIGINT(20) UNSIGNED NOT NULL,
+			assigned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (tag_id, subscriber_id),
+			KEY subscriber_id (subscriber_id)
+		) $charset_collate;";
+
+		$sql_campaign_variants = "CREATE TABLE IF NOT EXISTS $campaign_variants_table (
+			id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+			campaign_id BIGINT(20) UNSIGNED NOT NULL,
+			subject VARCHAR(500) NOT NULL,
+			content LONGTEXT,
+			weight_percentage INT UNSIGNED DEFAULT 100,
+			total_sent INT UNSIGNED DEFAULT 0,
+			total_opened INT UNSIGNED DEFAULT 0,
+			total_clicked INT UNSIGNED DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			KEY campaign_id (campaign_id)
+		) $charset_collate;";
+
 		require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
 		dbDelta( $sql_campaigns );
 		dbDelta( $sql_subscribers );
@@ -200,6 +291,12 @@ class Xophz_Compass_Bomb_Bag_Activator {
 		dbDelta( $sql_drip_steps );
 		dbDelta( $sql_drip_enrollments );
 		dbDelta( $sql_templates );
+		dbDelta( $sql_journeys );
+		dbDelta( $sql_journey_enrollments );
+		dbDelta( $sql_segments );
+		dbDelta( $sql_tags );
+		dbDelta( $sql_subscriber_tags );
+		dbDelta( $sql_campaign_variants );
 
 		self::seed_default_list();
 		self::seed_default_templates();

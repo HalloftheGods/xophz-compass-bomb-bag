@@ -433,6 +433,13 @@ class Xophz_Compass_Bomb_Bag_Rest {
 			return new WP_Error('not_found', 'Campaign not found', array('status' => 404));
 		}
 
+		$variants_table = $wpdb->prefix . 'bomb_bag_campaign_variants';
+		$variants = $wpdb->get_results($wpdb->prepare(
+			"SELECT * FROM $variants_table WHERE campaign_id = %d ORDER BY id ASC", $id
+		));
+
+		$campaign->variants = $variants;
+
 		return rest_ensure_response($campaign);
 	}
 
@@ -464,6 +471,20 @@ class Xophz_Compass_Bomb_Bag_Rest {
 		}
 
 		$data['id'] = $wpdb->insert_id;
+
+		$variants = $request->get_param('variants');
+		if (is_array($variants) && !empty($variants)) {
+			$variants_table = $wpdb->prefix . 'bomb_bag_campaign_variants';
+			foreach ($variants as $variant) {
+				$wpdb->insert($variants_table, array(
+					'campaign_id' => $data['id'],
+					'subject' => sanitize_text_field($variant['subject'] ?? ''),
+					'content' => wp_kses_post($variant['content'] ?? ''),
+					'weight_percentage' => absint($variant['weight_percentage'] ?? 100)
+				));
+			}
+		}
+
 		return rest_ensure_response($data);
 	}
 
@@ -502,6 +523,21 @@ class Xophz_Compass_Bomb_Bag_Rest {
 
 		if ($result === false) {
 			return new WP_Error('update_failed', 'Failed to update campaign', array('status' => 500));
+		}
+
+		$variants = $request->get_param('variants');
+		if (is_array($variants)) {
+			$variants_table = $wpdb->prefix . 'bomb_bag_campaign_variants';
+			// Clear existing variants and recreate
+			$wpdb->delete($variants_table, array('campaign_id' => $id));
+			foreach ($variants as $variant) {
+				$wpdb->insert($variants_table, array(
+					'campaign_id' => $id,
+					'subject' => sanitize_text_field($variant['subject'] ?? ''),
+					'content' => wp_kses_post($variant['content'] ?? ''),
+					'weight_percentage' => absint($variant['weight_percentage'] ?? 100)
+				));
+			}
 		}
 
 		return rest_ensure_response(array('success' => true, 'id' => $id));

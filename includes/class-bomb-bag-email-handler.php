@@ -66,12 +66,40 @@ class Xophz_Compass_Bomb_Bag_Email_Handler {
 			'total_recipients' => count($subscribers)
 		), array('id' => $campaign_id));
 
+		$variants_table = $wpdb->prefix . 'bomb_bag_campaign_variants';
+		$variants = $wpdb->get_results($wpdb->prepare(
+			"SELECT id, weight_percentage FROM $variants_table WHERE campaign_id = %d",
+			$campaign_id
+		));
+
+		// Normalize weights into a distribution array
+		$variant_pool = array();
+		if (!empty($variants)) {
+			foreach ($variants as $v) {
+				$weight = max(1, (int)$v->weight_percentage);
+				for ($i = 0; $i < $weight; $i++) {
+					$variant_pool[] = $v->id;
+				}
+			}
+			shuffle($variant_pool);
+		}
+
 		// Queue emails for each subscriber
+		$pool_index = 0;
+		$pool_size = count($variant_pool);
+
 		foreach ($subscribers as $subscriber) {
 			$tracking_id = $this->generate_tracking_id();
 			
+			$variant_id = null;
+			if ($pool_size > 0) {
+				$variant_id = $variant_pool[$pool_index % $pool_size];
+				$pool_index++;
+			}
+			
 			$wpdb->insert($emails_table, array(
 				'campaign_id' => $campaign_id,
+				'variant_id' => $variant_id,
 				'subscriber_id' => $subscriber->id,
 				'status' => 'queued',
 				'tracking_id' => $tracking_id
@@ -112,6 +140,12 @@ class Xophz_Compass_Bomb_Bag_Email_Handler {
 			return;
 		}
 
+		$variants_table = $wpdb->prefix . 'bomb_bag_campaign_variants';
+		$variants = $wpdb->get_results($wpdb->prepare(
+			"SELECT * FROM $variants_table WHERE campaign_id = %d",
+			$campaign_id
+		), OBJECT_K);
+
 		// Get queued emails for this campaign
 		$emails = $wpdb->get_results($wpdb->prepare(
 			"SELECT e.*, s.email, s.first_name, s.last_name 
@@ -137,8 +171,16 @@ class Xophz_Compass_Bomb_Bag_Email_Handler {
 		$from_email = $campaign->from_email ?: ($settings['from_email'] ?? get_option('admin_email'));
 
 		foreach ($emails as $email) {
-			$content = $this->personalize_content($campaign->content, $email);
-			$content = $this->add_tracking($content, $email->tracking_id);
+			$email_subject = $campaign->subject;
+			$email_content = $campaign->content;
+			
+			if (!empty($email->variant_id) && isset($variants[$email->variant_id])) {
+				$email_subject = $variants[$email->variant_id]->subject;
+				$email_content = $variants[$email->variant_id]->content;
+			}
+
+			$content = $this->personalize_content($email_content, $email);
+			$content = $this->add_tracking($content, $email->tracking_id, $campaign_id, $email->variant_id);
 			
 			$headers = array(
 				'Content-Type: text/html; charset=UTF-8',
@@ -146,7 +188,7 @@ class Xophz_Compass_Bomb_Bag_Email_Handler {
 				'List-Unsubscribe: <' . $this->get_unsubscribe_url($email->tracking_id) . '>'
 			);
 
-			$sent = Xophz_Compass_Bomb_Bag_Email_Providers::send($email->email, $campaign->subject, $content, $headers);
+			$sent = Xophz_Compass_Bomb_Bag_Email_Providers::send($email->email, $email_subject, $content, $headers);
 
 			if ($sent) {
 				$wpdb->update($emails_table, array(
@@ -334,9 +376,11 @@ class Xophz_Compass_Bomb_Bag_Email_Handler {
 	 * @since    1.0.0
 	 * @param    string $content
 	 * @param    string $tracking_id
+	 * @param    int|null $campaign_id
+	 * @param    int|null $variant_id
 	 * @return   string
 	 */
-	private function add_tracking( $content, $tracking_id ) {
+	private function add_tracking( $content, $tracking_id, $campaign_id = null, $variant_id = null ) {
 		$tracking_url = add_query_arg(array(
 			'bomb_bag_track' => 'open',
 			'tid' => $tracking_id
@@ -354,7 +398,7 @@ class Xophz_Compass_Bomb_Bag_Email_Handler {
 		// Rewrite links for click tracking
 		$content = preg_replace_callback(
 			'/<a\s+([^>]*href=["\'])([^"\']+)(["\'][^>]*)>/i',
-			function($matches) use ($tracking_id) {
+			function($matches) use ($tracking_id, $campaign_id, $variant_id) {
 				$url = $matches[2];
 				// Don't track unsubscribe links
 				if (strpos($url, 'unsubscribe') !== false) {
@@ -365,6 +409,16 @@ class Xophz_Compass_Bomb_Bag_Email_Handler {
 					'tid' => $tracking_id,
 					'url' => urlencode($url)
 				), home_url());
+				
+				// Append UTM params for Silver Arrow integration
+				if ($campaign_id) {
+					$tracked_url = add_query_arg('utm_campaign', 'bombbag_' . $campaign_id, $tracked_url);
+					$tracked_url = add_query_arg('sa_test', $campaign_id, $tracked_url);
+					if ($variant_id) {
+						$tracked_url = add_query_arg('sa_variant', $variant_id, $tracked_url);
+					}
+				}
+				
 				return '<a ' . $matches[1] . esc_url($tracked_url) . $matches[3] . '>';
 			},
 			$content
@@ -533,6 +587,167 @@ class Xophz_Compass_Bomb_Bag_Email_Handler {
 				$wpdb->query( $wpdb->prepare(
 					"UPDATE $seq_table SET total_completed = total_completed + 1 WHERE id = %d",
 					$enrollment->sequence_id
+				));
+			}
+		}
+	}
+
+	/**
+	 * Process node-based Journey emails.
+	 *
+	 * @since    1.0.0
+	 */
+	public function process_journey_enrollments() {
+		global $wpdb;
+
+		$enroll_table  = $wpdb->prefix . 'bomb_bag_journey_enrollments';
+		$journey_table = $wpdb->prefix . 'bomb_bag_journeys';
+		$sub_table     = $wpdb->prefix . 'bomb_bag_subscribers';
+		$emails_table  = $wpdb->prefix . 'bomb_bag_emails';
+
+		$due_enrollments = $wpdb->get_results( $wpdb->prepare(
+			"SELECT e.*, s.email, s.first_name, s.last_name
+			 FROM $enroll_table e
+			 INNER JOIN $sub_table s ON e.subscriber_id = s.id
+			 WHERE e.status = 'active' AND e.next_send_at <= %s
+			 LIMIT 100",
+			current_time( 'mysql' )
+		));
+
+		foreach ( $due_enrollments as $enrollment ) {
+			$journey = $wpdb->get_row( $wpdb->prepare(
+				"SELECT * FROM $journey_table WHERE id = %d AND status = 'active'", 
+				$enrollment->journey_id
+			));
+
+			if ( ! $journey ) {
+				continue;
+			}
+
+			$nodes = json_decode( $journey->nodes_json, true );
+			$edges = json_decode( $journey->edges_json, true );
+
+			if ( ! is_array( $nodes ) || ! is_array( $edges ) ) {
+				continue;
+			}
+
+			$current_node_id = $enrollment->current_node;
+			$current_node = null;
+
+			foreach ( $nodes as $node ) {
+				if ( $node['id'] === $current_node_id ) {
+					$current_node = $node;
+					break;
+				}
+			}
+
+			if ( ! $current_node ) {
+				// Node not found, end journey
+				$wpdb->update( $enroll_table, array(
+					'status'       => 'completed',
+					'completed_at' => current_time( 'mysql' ),
+					'next_send_at' => null,
+				), array( 'id' => $enrollment->id ) );
+				continue;
+			}
+
+			$delay_seconds = 0;
+			$next_node_id = null;
+			$next_nodes = array();
+			
+			// Find connecting edges
+			foreach ( $edges as $edge ) {
+				if ( $edge['source'] === $current_node_id ) {
+					$next_nodes[] = $edge;
+				}
+			}
+
+			if ( $current_node['type'] === 'email' ) {
+				// Send Email
+				$settings   = get_option( 'bomb_bag_settings', array() );
+				$from_name  = $settings['from_name'] ?? get_bloginfo( 'name' );
+				$from_email = $settings['from_email'] ?? get_option( 'admin_email' );
+
+				$tracking_id = $this->generate_tracking_id();
+				$subject = $current_node['data']['subject'] ?? 'Update';
+				$content = $current_node['data']['content'] ?? '';
+
+				$content = $this->personalize_content( $content, $enrollment );
+				$content = $this->add_tracking( $content, $tracking_id );
+
+				$headers = array(
+					'Content-Type: text/html; charset=UTF-8',
+					'From: ' . $from_name . ' <' . $from_email . '>',
+					'List-Unsubscribe: <' . $this->get_unsubscribe_url( $tracking_id ) . '>'
+				);
+
+				$sent = Xophz_Compass_Bomb_Bag_Email_Providers::send(
+					$enrollment->email, $subject, $content, $headers
+				);
+
+				$wpdb->insert( $emails_table, array(
+					'journey_node_id' => $current_node_id,
+					'subscriber_id'   => $enrollment->subscriber_id,
+					'status'          => $sent ? 'sent' : 'failed',
+					'tracking_id'     => $tracking_id,
+					'sent_at'         => $sent ? current_time( 'mysql' ) : null,
+					'error_message'   => $sent ? null : 'Email send failed',
+				));
+
+				if ( ! empty( $next_nodes ) ) {
+					$next_node_id = $next_nodes[0]['target'];
+				}
+			} elseif ( $current_node['type'] === 'wait' ) {
+				// Wait Node
+				$days = intval( $current_node['data']['days'] ?? 0 );
+				$hours = intval( $current_node['data']['hours'] ?? 0 );
+				$delay_seconds = ( $days * 86400 ) + ( $hours * 3600 );
+				
+				if ( ! empty( $next_nodes ) ) {
+					$next_node_id = $next_nodes[0]['target'];
+				}
+			} elseif ( $current_node['type'] === 'condition' ) {
+				// Evaluate condition (Placeholder logic for future expansion)
+				// For now, randomly pick true/false for testing if not specified, 
+				// or just follow the first path if condition logic is complex.
+				$condition_met = true; 
+				
+				foreach ( $next_nodes as $edge ) {
+					if ( $condition_met && $edge['sourceHandle'] === 'true' ) {
+						$next_node_id = $edge['target'];
+					} elseif ( ! $condition_met && $edge['sourceHandle'] === 'false' ) {
+						$next_node_id = $edge['target'];
+					}
+				}
+				
+				// Fallback if no specific true/false handles exist
+				if ( ! $next_node_id && ! empty( $next_nodes ) ) {
+					$next_node_id = $next_nodes[0]['target'];
+				}
+			} elseif ( $current_node['type'] === 'trigger' ) {
+				if ( ! empty( $next_nodes ) ) {
+					$next_node_id = $next_nodes[0]['target'];
+				}
+			}
+
+			// Advance to next node or finish
+			if ( $next_node_id ) {
+				$next_send = date( 'Y-m-d H:i:s', time() + $delay_seconds );
+				$wpdb->update( $enroll_table, array(
+					'current_node' => $next_node_id,
+					'next_send_at' => $next_send,
+				), array( 'id' => $enrollment->id ) );
+			} else {
+				// End of Journey
+				$wpdb->update( $enroll_table, array(
+					'status'       => 'completed',
+					'completed_at' => current_time( 'mysql' ),
+					'next_send_at' => null,
+				), array( 'id' => $enrollment->id ) );
+
+				$wpdb->query( $wpdb->prepare(
+					"UPDATE $journey_table SET total_completed = total_completed + 1 WHERE id = %d",
+					$enrollment->journey_id
 				));
 			}
 		}
