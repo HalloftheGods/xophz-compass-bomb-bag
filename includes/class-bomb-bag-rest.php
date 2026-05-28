@@ -595,10 +595,12 @@ class Xophz_Compass_Bomb_Bag_Rest {
 			$data['content'] = wp_kses_post($request->get_param('content'));
 		}
 
-		$result = $wpdb->update($table, $data, array('id' => $id));
+		if (!empty($data)) {
+			$result = $wpdb->update($table, $data, array('id' => $id));
 
-		if ($result === false) {
-			return new WP_Error('update_failed', 'Failed to update campaign', array('status' => 500));
+			if ($result === false) {
+				return new WP_Error('update_failed', 'Failed to update campaign', array('status' => 500));
+			}
 		}
 
 		$variants = $request->get_param('variants');
