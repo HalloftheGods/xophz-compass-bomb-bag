@@ -260,6 +260,9 @@ class Xophz_Compass_Bomb_Bag_Email_Handler {
 
 		// Update campaign stats
 		$this->update_campaign_stats($email->campaign_id);
+
+		// Increment Lead Score (+10 for opens)
+		$this->increment_subscriber_score($email->subscriber_id, 10);
 	}
 
 	/**
@@ -301,6 +304,9 @@ class Xophz_Compass_Bomb_Bag_Email_Handler {
 
 		// Update campaign stats
 		$this->update_campaign_stats($email->campaign_id);
+
+		// Increment Lead Score (+20 for clicks)
+		$this->increment_subscriber_score($email->subscriber_id, 20);
 	}
 
 	/**
@@ -339,6 +345,41 @@ class Xophz_Compass_Bomb_Bag_Email_Handler {
 		));
 
 		return true;
+	}
+
+	/**
+	 * Increment a subscriber's lead score and update status.
+	 *
+	 * @since    1.0.0
+	 * @param    int $subscriber_id
+	 * @param    int $points
+	 */
+	private function increment_subscriber_score( $subscriber_id, $points ) {
+		global $wpdb;
+		$subscribers_table = $wpdb->prefix . 'bomb_bag_subscribers';
+
+		// Ensure the columns exist before updating
+		$has_score = $wpdb->get_results( "SHOW COLUMNS FROM `$subscribers_table` LIKE 'score'" );
+		if ( empty( $has_score ) ) {
+			return; // columns don't exist yet, dbDelta hasn't run
+		}
+
+		$subscriber = $wpdb->get_row( $wpdb->prepare( "SELECT score FROM $subscribers_table WHERE id = %d", $subscriber_id ) );
+		if ( ! $subscriber ) return;
+
+		$new_score = intval( $subscriber->score ) + intval( $points );
+		
+		$new_status = 'cold';
+		if ( $new_score >= 100 ) {
+			$new_status = 'hot';
+		} elseif ( $new_score >= 50 ) {
+			$new_status = 'warm';
+		}
+
+		$wpdb->update( $subscribers_table, array(
+			'score'       => $new_score,
+			'lead_status' => $new_status
+		), array( 'id' => $subscriber_id ) );
 	}
 
 	/**
@@ -382,9 +423,9 @@ class Xophz_Compass_Bomb_Bag_Email_Handler {
 	 */
 	private function add_tracking( $content, $tracking_id, $campaign_id = null, $variant_id = null ) {
 		$tracking_url = add_query_arg(array(
-			'bomb_bag_track' => 'open',
-			'tid' => $tracking_id
-		), home_url());
+			'px_track' => 'open',
+			't_id' => $tracking_id
+		), rest_url('xophz-compass/v1/bomb-bag/track'));
 
 		// Add tracking pixel before closing body tag
 		$pixel = '<img src="' . esc_url($tracking_url) . '" width="1" height="1" style="display:none;" alt="" />';
@@ -405,10 +446,10 @@ class Xophz_Compass_Bomb_Bag_Email_Handler {
 					return $matches[0];
 				}
 				$tracked_url = add_query_arg(array(
-					'bomb_bag_track' => 'click',
-					'tid' => $tracking_id,
+					'px_track' => 'click',
+					't_id' => $tracking_id,
 					'url' => urlencode($url)
-				), home_url());
+				), rest_url('xophz-compass/v1/bomb-bag/track'));
 				
 				// Append UTM params for Silver Arrow integration
 				if ($campaign_id) {
@@ -436,9 +477,9 @@ class Xophz_Compass_Bomb_Bag_Email_Handler {
 	 */
 	private function get_unsubscribe_url( $tracking_id ) {
 		return add_query_arg(array(
-			'bomb_bag_track' => 'unsubscribe',
-			'tid' => $tracking_id
-		), home_url());
+			'px_track' => 'unsubscribe',
+			't_id' => $tracking_id
+		), rest_url('xophz-compass/v1/bomb-bag/track'));
 	}
 
 	/**
@@ -749,6 +790,63 @@ class Xophz_Compass_Bomb_Bag_Email_Handler {
 					"UPDATE $journey_table SET total_completed = total_completed + 1 WHERE id = %d",
 					$enrollment->journey_id
 				));
+			}
+		}
+	}
+
+	/**
+	 * Enroll a subscriber in eligible active Journeys upon creation.
+	 *
+	 * @since    1.0.0
+	 * @param    int $subscriber_id
+	 * @param    int $list_id
+	 */
+	public function enroll_subscriber_in_journeys( $subscriber_id, $list_id = 0 ) {
+		global $wpdb;
+
+		$journey_table = $wpdb->prefix . 'bomb_bag_journeys';
+		$enroll_table  = $wpdb->prefix . 'bomb_bag_journey_enrollments';
+
+		// Find active journeys that trigger on 'subscribe' or 'list_subscription'
+		$active_journeys = $wpdb->get_results( "SELECT * FROM $journey_table WHERE status = 'active' AND (trigger_type = 'subscribe' OR trigger_type = 'list_subscription')" );
+
+		foreach ( $active_journeys as $journey ) {
+			// Basic list filtering - if journey has trigger settings for a specific list, check it
+			$nodes = json_decode( $journey->nodes_json, true );
+			if ( ! is_array( $nodes ) ) continue;
+
+			$trigger_node = null;
+			foreach ( $nodes as $node ) {
+				if ( $node['type'] === 'trigger' ) {
+					$trigger_node = $node;
+					break;
+				}
+			}
+
+			if ( ! $trigger_node ) continue;
+
+			// If the trigger node specifies a list_id, ensure it matches
+			if ( ! empty( $trigger_node['data']['list_id'] ) ) {
+				$trigger_list_id = intval( $trigger_node['data']['list_id'] );
+				if ( $trigger_list_id !== 0 && $trigger_list_id !== intval( $list_id ) ) {
+					continue; // Subscriber is not on the target list
+				}
+			}
+
+			// Check if already enrolled to prevent duplicates
+			$exists = $wpdb->get_var( $wpdb->prepare(
+				"SELECT id FROM $enroll_table WHERE journey_id = %d AND subscriber_id = %d",
+				$journey->id, $subscriber_id
+			) );
+
+			if ( ! $exists ) {
+				$wpdb->insert( $enroll_table, array(
+					'journey_id'    => $journey->id,
+					'subscriber_id' => $subscriber_id,
+					'current_node'  => $trigger_node['id'], // Start at the trigger node
+					'status'        => 'active',
+					'next_send_at'  => current_time( 'mysql' ) // Process immediately
+				) );
 			}
 		}
 	}

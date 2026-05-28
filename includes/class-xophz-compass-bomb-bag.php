@@ -236,11 +236,10 @@ class Xophz_Compass_Bomb_Bag {
 		add_action( 'bomb_bag_send_emails', array( $email_handler, 'process_campaign_emails' ) );
 		add_action( 'bomb_bag_process_drips', array( $email_handler, 'process_drip_emails' ) );
 		add_action( 'bomb_bag_process_journeys', array( $email_handler, 'process_journey_enrollments' ) );
+		add_action( 'bomb_bag_subscriber_created', array( $email_handler, 'enroll_subscriber_in_journeys' ), 10, 2 );
 		add_action( 'bomb_bag_check_scheduled', array( $this, 'check_scheduled_campaigns' ) );
 
 		add_filter( 'cron_schedules', array( $this, 'add_cron_intervals' ) );
-
-		$this->loader->add_action( 'init', $this, 'handle_tracking_requests' );
 
 		// Register Spark with Event Horizon Registry
 		// $this->loader->add_filter( 'xophz_register_sparks', $plugin_public, 'register_spark' );
@@ -266,56 +265,6 @@ class Xophz_Compass_Bomb_Bag {
 
 		if ( ! wp_next_scheduled( 'bomb_bag_check_scheduled' ) ) {
 			wp_schedule_event( time(), 'every_five_minutes', 'bomb_bag_check_scheduled' );
-		}
-	}
-
-	/**
-	 * Handle tracking pixel and link click requests.
-	 *
-	 * @since    1.0.0
-	 */
-	public function handle_tracking_requests() {
-		if ( empty( $_GET['bomb_bag_track'] ) || empty( $_GET['tid'] ) ) {
-			return;
-		}
-
-		$action = sanitize_text_field( $_GET['bomb_bag_track'] );
-		$tracking_id = sanitize_text_field( $_GET['tid'] );
-		$email_handler = new Xophz_Compass_Bomb_Bag_Email_Handler();
-
-		switch ( $action ) {
-			case 'open':
-				$email_handler->track_open( $tracking_id );
-				// Return 1x1 transparent GIF
-				header( 'Content-Type: image/gif' );
-				echo base64_decode( 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7' );
-				exit;
-
-			case 'click':
-				$url = urldecode( $_GET['url'] ?? '' );
-				if ( $url && filter_var( $url, FILTER_VALIDATE_URL ) ) {
-					$email_handler->track_click( $tracking_id, $url );
-					wp_redirect( $url );
-					exit;
-				}
-				break;
-
-			case 'unsubscribe':
-				$result = $email_handler->handle_unsubscribe( $tracking_id );
-				if ( $result ) {
-					wp_die( 
-						'<h1>Unsubscribed</h1><p>You have been successfully unsubscribed from our mailing list.</p>',
-						'Unsubscribed',
-						array( 'response' => 200 )
-					);
-				} else {
-					wp_die( 
-						'<h1>Error</h1><p>Invalid or expired unsubscribe link.</p>',
-						'Error',
-						array( 'response' => 400 )
-					);
-				}
-				break;
 		}
 	}
 

@@ -6,11 +6,11 @@ class Xophz_Compass_Bomb_Bag_Forms_Rest {
 	private $namespace;
 
 	public function __construct() {
-		$this->namespace = 'bomb-bag/v1';
+		$this->namespace = 'xophz-compass/v1';
 	}
 
 	public function register_routes() {
-		register_rest_route( $this->namespace, '/subscribe', array(
+		register_rest_route( $this->namespace, '/bomb-bag/subscribe', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( $this, 'handle_subscription' ),
 			'permission_callback' => '__return_true', // Public endpoint

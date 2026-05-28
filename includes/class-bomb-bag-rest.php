@@ -159,6 +159,12 @@ class Xophz_Compass_Bomb_Bag_Rest {
 			'permission_callback' => array( $this, 'check_admin_permission' ),
 		));
 
+		register_rest_route( $this->namespace, '/bomb-bag/subscribers/export', array(
+			'methods'  => 'GET',
+			'callback' => array( $this, 'export_subscribers' ),
+			'permission_callback' => array( $this, 'check_admin_permission' ),
+		));
+
 		// Lists endpoints
 		register_rest_route( $this->namespace, '/bomb-bag/lists', array(
 			array(
@@ -186,11 +192,24 @@ class Xophz_Compass_Bomb_Bag_Rest {
 			)
 		));
 
+		register_rest_route( $this->namespace, '/bomb-bag/lists/(?P<id>\d+)/scrub', array(
+			'methods'  => 'POST',
+			'callback' => array( $this, 'scrub_list' ),
+			'permission_callback' => array( $this, 'check_admin_permission' ),
+		));
+
 		// Analytics endpoint
 		register_rest_route( $this->namespace, '/bomb-bag/analytics/(?P<campaign_id>\d+)', array(
 			'methods'  => 'GET',
 			'callback' => array( $this, 'get_campaign_analytics' ),
 			'permission_callback' => array( $this, 'check_admin_permission' ),
+		));
+
+		// Tracking endpoints (public)
+		register_rest_route( $this->namespace, '/bomb-bag/track', array(
+			'methods'  => 'GET',
+			'callback' => array( $this, 'handle_tracking_request' ),
+			'permission_callback' => '__return_true', // Public
 		));
 	}
 
@@ -202,6 +221,63 @@ class Xophz_Compass_Bomb_Bag_Rest {
 	 */
 	public function check_admin_permission() {
 		return current_user_can( 'manage_options' );
+	}
+
+	// =====================
+	// TRACKING
+	// =====================
+
+	/**
+	 * Handle tracking pixel and link click requests.
+	 *
+	 * @since    1.0.0
+	 */
+	public function handle_tracking_request( $request ) {
+		$action = sanitize_text_field( $request->get_param( 'px_track' ) );
+		$tracking_id = sanitize_text_field( $request->get_param( 't_id' ) );
+
+		if ( empty( $action ) || empty( $tracking_id ) ) {
+			return new WP_Error( 'invalid_tracking', 'Missing tracking parameters', array( 'status' => 400 ) );
+		}
+
+		$email_handler = new Xophz_Compass_Bomb_Bag_Email_Handler();
+
+		switch ( $action ) {
+			case 'open':
+				$email_handler->track_open( $tracking_id );
+				// Return 1x1 transparent GIF
+				header( 'Content-Type: image/gif' );
+				echo base64_decode( 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7' );
+				exit;
+
+			case 'click':
+				$url = urldecode( $request->get_param( 'url' ) ?? '' );
+				if ( $url && filter_var( $url, FILTER_VALIDATE_URL ) ) {
+					$email_handler->track_click( $tracking_id, $url );
+					wp_redirect( $url );
+					exit;
+				}
+				break;
+
+			case 'unsubscribe':
+				$result = $email_handler->handle_unsubscribe( $tracking_id );
+				if ( $result ) {
+					wp_die( 
+						'<h1>Unsubscribed</h1><p>You have been successfully unsubscribed from our mailing list.</p>',
+						'Unsubscribed',
+						array( 'response' => 200 )
+					);
+				} else {
+					wp_die( 
+						'<h1>Error</h1><p>Invalid or expired unsubscribe link.</p>',
+						'Error',
+						array( 'response' => 400 )
+					);
+				}
+				break;
+		}
+
+		return new WP_Error( 'invalid_action', 'Invalid tracking action', array( 'status' => 400 ) );
 	}
 
 	// =====================
@@ -896,6 +972,68 @@ class Xophz_Compass_Bomb_Bag_Rest {
 		));
 	}
 
+	/**
+	 * Export subscribers as CSV
+	 *
+	 * @since    1.0.0
+	 * @param    WP_REST_Request $request
+	 * @return   WP_REST_Response
+	 */
+	public function export_subscribers( $request ) {
+		global $wpdb;
+		$table = $wpdb->prefix . 'bomb_bag_subscribers';
+		$junction = $wpdb->prefix . 'bomb_bag_list_subscribers';
+
+		$list_id = $request->get_param('list_id');
+		$status = $request->get_param('status');
+
+		$where = array('1=1');
+		$params = array();
+
+		if ($status) {
+			$where[] = 's.status = %s';
+			$params[] = $status;
+		}
+
+		$list_join = '';
+		if ($list_id) {
+			$list_join = "INNER JOIN $junction ls ON s.id = ls.subscriber_id";
+			$where[] = 'ls.list_id = %d';
+			$params[] = $list_id;
+		}
+
+		$where_sql = implode(' AND ', $where);
+		$sql = "SELECT DISTINCT s.email, s.first_name, s.last_name, s.status, s.score, s.lead_status, s.subscribed_at 
+		        FROM $table s $list_join WHERE $where_sql ORDER BY s.subscribed_at DESC";
+
+		if (!empty($params)) {
+			$sql = $wpdb->prepare($sql, $params);
+		}
+
+		$subscribers = $wpdb->get_results($sql, ARRAY_A);
+
+		// Generate CSV
+		$filename = 'bomb_bag_subscribers_' . date('Y-m-d') . '.csv';
+		
+		header('Content-Type: text/csv');
+		header('Content-Disposition: attachment; filename="' . $filename . '"');
+		header('Pragma: no-cache');
+		header('Expires: 0');
+
+		$output = fopen('php://output', 'w');
+		
+		// Headers
+		fputcsv($output, array('Email', 'First Name', 'Last Name', 'Status', 'Score', 'Lead Status', 'Subscribed At'));
+		
+		// Data
+		foreach ($subscribers as $row) {
+			fputcsv($output, $row);
+		}
+		
+		fclose($output);
+		exit;
+	}
+
 	// =====================
 	// LISTS
 	// =====================
@@ -995,6 +1133,38 @@ class Xophz_Compass_Bomb_Bag_Rest {
 		}
 
 		return rest_ensure_response(array('success' => true));
+	}
+
+	/**
+	 * Scrub list (remove bounced/complained/unsubscribed)
+	 *
+	 * @since    1.0.0
+	 * @param    WP_REST_Request $request
+	 * @return   WP_REST_Response
+	 */
+	public function scrub_list( $request ) {
+		global $wpdb;
+		$junction = $wpdb->prefix . 'bomb_bag_list_subscribers';
+		$subscribers = $wpdb->prefix . 'bomb_bag_subscribers';
+		$list_id = $request->get_param('id');
+
+		// Remove subscribers from the list if their status is bounced, complained, or unsubscribed
+		$sql = $wpdb->prepare(
+			"DELETE ls FROM $junction ls 
+			 INNER JOIN $subscribers s ON ls.subscriber_id = s.id 
+			 WHERE ls.list_id = %d AND s.status IN ('bounced', 'complained', 'unsubscribed')",
+			$list_id
+		);
+		$wpdb->query($sql);
+		$removed_count = $wpdb->rows_affected;
+
+		$this->update_list_count($list_id);
+
+		return rest_ensure_response(array(
+			'success' => true,
+			'removed_count' => $removed_count,
+			'message' => "Successfully scrubbed $removed_count inactive leads from the list."
+		));
 	}
 
 	// =====================

@@ -6,8 +6,8 @@
 class Xophz_Compass_Bomb_Bag_Tag_Rest extends WP_REST_Controller {
 
 	public function __construct() {
-		$this->namespace = 'bomb-bag/v1';
-		$this->rest_base = 'tags';
+		$this->namespace = 'xophz-compass/v1';
+		$this->rest_base = 'bomb-bag/tags';
 	}
 
 	public function register_routes() {
@@ -43,7 +43,7 @@ class Xophz_Compass_Bomb_Bag_Tag_Rest extends WP_REST_Controller {
 		) );
 
 		// Subscriber Tags Relationship
-		register_rest_route( $this->namespace, '/subscribers/(?P<id>[\d]+)/tags', array(
+		register_rest_route( $this->namespace, '/bomb-bag/subscribers/(?P<id>[\d]+)/tags', array(
 			array(
 				'methods'             => WP_REST_Server::READABLE,
 				'callback'            => array( $this, 'get_subscriber_tags' ),

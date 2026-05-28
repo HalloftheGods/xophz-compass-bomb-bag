@@ -6,8 +6,8 @@
 class Xophz_Compass_Bomb_Bag_Segment_Rest extends WP_REST_Controller {
 
 	public function __construct() {
-		$this->namespace = 'bomb-bag/v1';
-		$this->rest_base = 'segments';
+		$this->namespace = 'xophz-compass/v1';
+		$this->rest_base = 'bomb-bag/segments';
 	}
 
 	public function register_routes() {
