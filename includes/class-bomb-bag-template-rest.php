@@ -45,6 +45,20 @@ class Xophz_Compass_Bomb_Bag_Template_Rest {
 		global $wpdb;
 		$table = $wpdb->prefix . 'bomb_bag_templates';
 		$templates = $wpdb->get_results( "SELECT * FROM $table ORDER BY is_default DESC, name ASC" );
+		
+		// Check for Branda template
+		$branda_template = get_option('ub_email_template');
+		if ( ! empty( $branda_template ) && is_array( $branda_template ) && ! empty( $branda_template['email']['content'] ) ) {
+			$templates[] = (object) array(
+				'id' => 0,
+				'name' => 'Branda Active Template',
+				'description' => 'The currently active template from the Branda plugin.',
+				'category' => 'system',
+				'content' => $branda_template['email']['content'],
+				'is_default' => 0
+			);
+		}
+
 		return rest_ensure_response( $templates );
 	}
 
@@ -52,6 +66,21 @@ class Xophz_Compass_Bomb_Bag_Template_Rest {
 		global $wpdb;
 		$table = $wpdb->prefix . 'bomb_bag_templates';
 		$id    = $request->get_param( 'id' );
+
+		if ( $id == 0 ) {
+			$branda_template = get_option('ub_email_template');
+			if ( ! empty( $branda_template ) && is_array( $branda_template ) && ! empty( $branda_template['email']['content'] ) ) {
+				$template = (object) array(
+					'id' => 0,
+					'name' => 'Branda Active Template',
+					'description' => 'The currently active template from the Branda plugin.',
+					'category' => 'system',
+					'content' => $branda_template['email']['content'],
+					'is_default' => 0
+				);
+				return rest_ensure_response( $template );
+			}
+		}
 
 		$template = $wpdb->get_row( $wpdb->prepare(
 			"SELECT * FROM $table WHERE id = %d", $id

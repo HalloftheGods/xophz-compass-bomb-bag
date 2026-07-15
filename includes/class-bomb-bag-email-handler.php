@@ -179,6 +179,8 @@ class Xophz_Compass_Bomb_Bag_Email_Handler {
 				$email_content = $variants[$email->variant_id]->content;
 			}
 
+			$email_content = self::apply_template($email_content, $campaign->template_id);
+
 			$content = $this->personalize_content($email_content, $email);
 			$content = $this->add_tracking($content, $email->tracking_id, $campaign_id, $email->variant_id);
 			
@@ -849,5 +851,41 @@ class Xophz_Compass_Bomb_Bag_Email_Handler {
 				) );
 			}
 		}
+	}
+
+	/**
+	 * Wrap content in a template if specified.
+	 *
+	 * @param string $content
+	 * @param int|null $template_id
+	 * @return string
+	 */
+	public static function apply_template( $content, $template_id ) {
+		if ( empty( $template_id ) && $template_id !== 0 && $template_id !== '0' ) {
+			return $content;
+		}
+
+		if ( $template_id == 0 ) {
+			$branda_template = get_option('ub_email_template');
+			if ( ! empty( $branda_template ) && is_array( $branda_template ) && ! empty( $branda_template['email']['content'] ) ) {
+				$template_content = $branda_template['email']['content'];
+			} else {
+				return $content;
+			}
+		} else {
+			global $wpdb;
+			$table = $wpdb->prefix . 'bomb_bag_templates';
+			$template_content = $wpdb->get_var( $wpdb->prepare( "SELECT content FROM $table WHERE id = %d", $template_id ) );
+			
+			if ( empty( $template_content ) ) {
+				return $content;
+			}
+		}
+
+		if ( strpos( $template_content, '{MESSAGE}' ) !== false ) {
+			return str_replace( '{MESSAGE}', $content, $template_content );
+		}
+
+		return $content;
 	}
 }

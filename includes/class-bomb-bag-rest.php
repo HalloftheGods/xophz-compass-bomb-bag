@@ -165,6 +165,12 @@ class Xophz_Compass_Bomb_Bag_Rest {
 			'permission_callback' => array( $this, 'check_admin_permission' ),
 		));
 
+		register_rest_route( $this->namespace, '/bomb-bag/subscribers/sync-wp-users', array(
+			'methods'  => 'POST',
+			'callback' => array( $this, 'sync_wp_users' ),
+			'permission_callback' => array( $this, 'check_admin_permission' ),
+		));
+
 		// Lists endpoints
 		register_rest_route( $this->namespace, '/bomb-bag/lists', array(
 			array(
@@ -684,7 +690,8 @@ class Xophz_Compass_Bomb_Bag_Rest {
 			return new WP_Error('not_found', 'Campaign not found', array('status' => 404));
 		}
 
-		$result = $this->send_email($test_email, '[TEST] ' . $campaign->subject, $campaign->content);
+		$email_content = Xophz_Compass_Bomb_Bag_Email_Handler::apply_template($campaign->content, $campaign->template_id);
+		$result = $this->send_email($test_email, '[TEST] ' . $campaign->subject, $email_content);
 
 		if ($result) {
 			return rest_ensure_response(array('success' => true, 'message' => 'Test email sent'));
@@ -948,6 +955,98 @@ class Xophz_Compass_Bomb_Bag_Rest {
 				'last_name' => sanitize_text_field($sub['last_name'] ?? ''),
 				'status' => 'active',
 				'source' => 'import'
+			);
+
+			$wpdb->insert($table, $data);
+			$subscriber_id = $wpdb->insert_id;
+
+			if ($list_id && $subscriber_id) {
+				$wpdb->insert($junction, array(
+					'list_id' => $list_id,
+					'subscriber_id' => $subscriber_id
+				));
+			}
+
+			$imported++;
+		}
+
+		if ($list_id) {
+			$this->update_list_count($list_id);
+		}
+
+		return rest_ensure_response(array(
+			'success' => true,
+			'imported' => $imported,
+			'skipped' => $skipped
+		));
+	}
+
+	/**
+	 * Sync WordPress users to subscribers.
+	 *
+	 * @since    1.0.0
+	 * @param    WP_REST_Request $request
+	 * @return   WP_REST_Response
+	 */
+	public function sync_wp_users( $request ) {
+		global $wpdb;
+		$table = $wpdb->prefix . 'bomb_bag_subscribers';
+		$junction = $wpdb->prefix . 'bomb_bag_list_subscribers';
+
+		$list_id = absint($request->get_param('list_id'));
+
+		$wp_users = get_users(array(
+			'fields' => array('ID', 'user_email', 'first_name', 'last_name', 'display_name')
+		));
+
+		$imported = 0;
+		$skipped = 0;
+
+		foreach ($wp_users as $user) {
+			$email = sanitize_email($user->user_email);
+			if (!is_email($email)) {
+				$skipped++;
+				continue;
+			}
+
+			// Parse first/last name
+			$first_name = $user->first_name;
+			$last_name = $user->last_name;
+			
+			if (empty($first_name) && !empty($user->display_name)) {
+				$parts = explode(' ', $user->display_name, 2);
+				$first_name = $parts[0] ?? '';
+				$last_name = $parts[1] ?? '';
+			}
+
+			// Check for duplicate
+			$existing = $wpdb->get_var($wpdb->prepare(
+				"SELECT id FROM $table WHERE email = %s", $email
+			));
+
+			if ($existing) {
+				// Update names if missing
+				$wpdb->query($wpdb->prepare(
+					"UPDATE $table SET first_name = COALESCE(NULLIF(first_name, ''), %s), last_name = COALESCE(NULLIF(last_name, ''), %s) WHERE id = %d",
+					$first_name, $last_name, $existing
+				));
+
+				if ($list_id) {
+					$wpdb->query($wpdb->prepare(
+						"INSERT IGNORE INTO $junction (list_id, subscriber_id) VALUES (%d, %d)",
+						$list_id, $existing
+					));
+				}
+				$skipped++; // Treat as skipped from creation, though updated/linked
+				continue;
+			}
+
+			$data = array(
+				'email' => $email,
+				'first_name' => sanitize_text_field($first_name),
+				'last_name' => sanitize_text_field($last_name),
+				'status' => 'active',
+				'source' => 'wp_sync'
 			);
 
 			$wpdb->insert($table, $data);
