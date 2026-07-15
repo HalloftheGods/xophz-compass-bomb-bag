@@ -894,6 +894,12 @@ class Xophz_Compass_Bomb_Bag_Rest {
 		$junction = $wpdb->prefix . 'bomb_bag_list_subscribers';
 		$id = $request->get_param('id');
 
+		// Get lists the subscriber belongs to before removing them
+		$list_ids = $wpdb->get_col($wpdb->prepare(
+			"SELECT list_id FROM $junction WHERE subscriber_id = %d",
+			$id
+		));
+
 		// Remove from all lists first
 		$wpdb->delete($junction, array('subscriber_id' => $id));
 
@@ -902,6 +908,13 @@ class Xophz_Compass_Bomb_Bag_Rest {
 
 		if ($result === false) {
 			return new WP_Error('delete_failed', 'Failed to delete subscriber', array('status' => 500));
+		}
+
+		// Update counts for affected lists
+		if (!empty($list_ids)) {
+			foreach ($list_ids as $list_id) {
+				$this->update_list_count($list_id);
+			}
 		}
 
 		return rest_ensure_response(array('success' => true));
