@@ -515,6 +515,24 @@ class Xophz_Compass_Bomb_Bag_Rest {
 			return new WP_Error('not_found', 'Campaign not found', array('status' => 404));
 		}
 
+		if (in_array($campaign->status, array('draft', 'scheduled'))) {
+			$subscribers_table = $wpdb->prefix . 'bomb_bag_subscribers';
+			$list_subs_table = $wpdb->prefix . 'bomb_bag_list_subscribers';
+			
+			if ($campaign->list_id) {
+				$campaign->total_recipients = (int) $wpdb->get_var($wpdb->prepare(
+					"SELECT COUNT(s.id) FROM $subscribers_table s
+					 INNER JOIN $list_subs_table ls ON s.id = ls.subscriber_id
+					 WHERE ls.list_id = %d AND s.status = 'active'",
+					$campaign->list_id
+				));
+			} else {
+				$campaign->total_recipients = (int) $wpdb->get_var(
+					"SELECT COUNT(id) FROM $subscribers_table WHERE status = 'active'"
+				);
+			}
+		}
+
 		$variants_table = $wpdb->prefix . 'bomb_bag_campaign_variants';
 		$variants = $wpdb->get_results($wpdb->prepare(
 			"SELECT * FROM $variants_table WHERE campaign_id = %d ORDER BY id ASC", $id
