@@ -557,12 +557,16 @@ class Xophz_Compass_Bomb_Bag_Rest {
 		$data = array(
 			'name' => sanitize_text_field($request->get_param('name')),
 			'subject' => sanitize_text_field($request->get_param('subject')),
-			'content' => wp_kses_post($request->get_param('content')),
+			'content' => current_user_can('unfiltered_html') ? $request->get_param('content') : wp_kses_post($request->get_param('content')),
 			'from_name' => sanitize_text_field($request->get_param('from_name')),
 			'from_email' => sanitize_email($request->get_param('from_email')),
 			'list_id' => absint($request->get_param('list_id')),
 			'status' => 'draft'
 		);
+
+		if ($request->get_param('template_id') !== null) {
+			$data['template_id'] = $request->get_param('template_id') === '' ? null : absint($request->get_param('template_id'));
+		}
 
 		$result = $wpdb->insert($table, $data);
 
@@ -615,8 +619,12 @@ class Xophz_Compass_Bomb_Bag_Rest {
 			}
 		}
 
+		if ($request->get_param('template_id') !== null) {
+			$data['template_id'] = $request->get_param('template_id') === '' ? null : absint($request->get_param('template_id'));
+		}
+
 		if ($request->get_param('content') !== null) {
-			$data['content'] = wp_kses_post($request->get_param('content'));
+			$data['content'] = current_user_can('unfiltered_html') ? $request->get_param('content') : wp_kses_post($request->get_param('content'));
 		}
 
 		if (!empty($data)) {
