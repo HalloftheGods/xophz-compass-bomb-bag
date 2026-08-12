@@ -543,6 +543,16 @@ class Xophz_Compass_Bomb_Bag_Email_Handler {
 		$sub_table    = $wpdb->prefix . 'bomb_bag_subscribers';
 		$emails_table = $wpdb->prefix . 'bomb_bag_emails';
 
+		$table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$enroll_table}'" ) === $enroll_table;
+		if ( ! $table_exists ) {
+			return;
+		}
+
+		$col_exists = $wpdb->get_results( "SHOW COLUMNS FROM {$enroll_table} LIKE 'next_send_at'" );
+		if ( empty( $col_exists ) ) {
+			return;
+		}
+
 		$due_enrollments = $wpdb->get_results( $wpdb->prepare(
 			"SELECT e.*, s.email, s.first_name, s.last_name
 			 FROM $enroll_table e
@@ -647,6 +657,16 @@ class Xophz_Compass_Bomb_Bag_Email_Handler {
 		$journey_table = $wpdb->prefix . 'bomb_bag_journeys';
 		$sub_table     = $wpdb->prefix . 'bomb_bag_subscribers';
 		$emails_table  = $wpdb->prefix . 'bomb_bag_emails';
+
+		$table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$enroll_table}'" ) === $enroll_table;
+		if ( ! $table_exists ) {
+			return;
+		}
+
+		$col_exists = $wpdb->get_results( "SHOW COLUMNS FROM {$enroll_table} LIKE 'next_send_at'" );
+		if ( empty( $col_exists ) ) {
+			return;
+		}
 
 		$due_enrollments = $wpdb->get_results( $wpdb->prepare(
 			"SELECT e.*, s.email, s.first_name, s.last_name
