@@ -237,6 +237,7 @@ class Xophz_Compass_Bomb_Bag {
 		add_action( 'bomb_bag_process_drips', array( $email_handler, 'process_drip_emails' ) );
 		add_action( 'bomb_bag_process_journeys', array( $email_handler, 'process_journey_enrollments' ) );
 		add_action( 'bomb_bag_subscriber_created', array( $email_handler, 'enroll_subscriber_in_journeys' ), 10, 2 );
+		add_action( 'bomb_bag_subscriber_tag_added', array( $email_handler, 'enroll_subscriber_tag_journey' ), 10, 2 );
 		add_action( 'bomb_bag_check_scheduled', array( $this, 'check_scheduled_campaigns' ) );
 
 		add_filter( 'cron_schedules', array( $this, 'add_cron_intervals' ) );

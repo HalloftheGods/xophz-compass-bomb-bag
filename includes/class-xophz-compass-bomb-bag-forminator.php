@@ -3,7 +3,7 @@
 /**
  * Xophz COMPASS - Bomb Bag Forminator Integration
  * 
- * Captures Forminator form submissions and maps them to Bomb Bag subscribers.
+ * Captures Forminator form submissions and automatically maps them to Bomb Bag subscribers and lists.
  */
 class Xophz_Compass_Bomb_Bag_Forminator {
 
@@ -23,12 +23,12 @@ class Xophz_Compass_Bomb_Bag_Forminator {
 		$email      = '';
 		$first_name = '';
 		$last_name  = '';
-		$list_id    = 0; // Default to no list unless mapped
+		$list_id    = 0; // Default to 0, will auto-resolve/create if empty
 
 		// Parse field data
 		foreach ( $field_data_array as $field ) {
-			$name  = $field['name'];
-			$value = $field['value'];
+			$name  = isset( $field['name'] ) ? $field['name'] : '';
+			$value = isset( $field['value'] ) ? $field['value'] : '';
 
 			if ( empty( $value ) ) {
 				continue;
@@ -55,7 +55,6 @@ class Xophz_Compass_Bomb_Bag_Forminator {
 
 			// Check for hidden field mapping to Bomb Bag List ID
 			if ( strpos( $name, 'hidden-' ) === 0 || $name === 'bomb_bag_list_id' ) {
-				// If the hidden field has a value that looks like an integer, use it as list_id
 				if ( is_numeric( $value ) && strpos( strtolower( $field['field_array']['field_label'] ?? '' ), 'bomb bag' ) !== false ) {
 					$list_id = absint( $value );
 				} elseif ( $name === 'bomb_bag_list_id' || (isset($field['field_array']['custom_value']) && $field['field_array']['custom_value'] === 'bomb_bag_list_id') ) {
@@ -118,18 +117,66 @@ class Xophz_Compass_Bomb_Bag_Forminator {
 		}
 
 		global $wpdb;
-		$sub_table      = $wpdb->prefix . 'bombbag_subscribers';
-		$list_map_table = $wpdb->prefix . 'bombbag_subscriber_lists';
+		$sub_table             = $wpdb->prefix . 'bomb_bag_subscribers';
+		$lists_table           = $wpdb->prefix . 'bomb_bag_lists';
+		$list_sub_table        = $wpdb->prefix . 'bomb_bag_list_subscribers';
+		$tags_table            = $wpdb->prefix . 'bomb_bag_tags';
+		$subscriber_tags_table = $wpdb->prefix . 'bomb_bag_subscriber_tags';
+
+		// Resolve Form Title for Auto-List & Tag Creation
+		$form_title = '';
+		if ( class_exists( 'Forminator_API' ) ) {
+			$form_model = Forminator_API::get_form( $form_id );
+			if ( $form_model && isset( $form_model->name ) ) {
+				$form_title = sanitize_text_field( $form_model->name );
+			}
+		}
+		if ( empty( $form_title ) ) {
+			$form_post = get_post( $form_id );
+			if ( $form_post && ! empty( $form_post->post_title ) ) {
+				$form_title = sanitize_text_field( $form_post->post_title );
+			} else {
+				$form_title = 'Form #' . $form_id;
+			}
+		}
+
+		// Auto-Create/Find List if list_id is not explicitly provided
+		if ( ! $list_id ) {
+			$auto_list_name = 'Form: ' . $form_title;
+			$auto_list_slug = sanitize_title( 'form-' . $form_id . '-' . $form_title );
+
+			$existing_list = $wpdb->get_row( $wpdb->prepare(
+				"SELECT id FROM $lists_table WHERE slug = %s OR name = %s LIMIT 1",
+				$auto_list_slug, $auto_list_name
+			) );
+
+			if ( $existing_list ) {
+				$list_id = absint( $existing_list->id );
+			} else {
+				$wpdb->insert( $lists_table, array(
+					'name'        => $auto_list_name,
+					'slug'        => $auto_list_slug,
+					'description' => 'Automated list for submissions received from Forminator form: ' . $form_title,
+					'created_at'  => current_time( 'mysql' ),
+					'updated_at'  => current_time( 'mysql' ),
+				) );
+				$list_id = absint( $wpdb->insert_id );
+			}
+		}
 
 		// Check if subscriber exists
 		$subscriber = $wpdb->get_row( $wpdb->prepare( "SELECT id FROM $sub_table WHERE email = %s", $email ) );
 
 		if ( $subscriber ) {
-			$subscriber_id = $subscriber->id;
-			// Update name if we found a new one
+			$subscriber_id = absint( $subscriber->id );
+			// Update name if we found new non-empty values
 			$update_data = array();
-			if ( $first_name ) $update_data['first_name'] = $first_name;
-			if ( $last_name )  $update_data['last_name'] = $last_name;
+			if ( $first_name ) {
+				$update_data['first_name'] = $first_name;
+			}
+			if ( $last_name ) {
+				$update_data['last_name'] = $last_name;
+			}
 			
 			if ( ! empty( $update_data ) ) {
 				$wpdb->update( $sub_table, $update_data, array( 'id' => $subscriber_id ) );
@@ -137,34 +184,75 @@ class Xophz_Compass_Bomb_Bag_Forminator {
 		} else {
 			// Insert new subscriber
 			$wpdb->insert( $sub_table, array(
-				'email'      => $email,
-				'first_name' => $first_name,
-				'last_name'  => $last_name,
-				'status'     => 'active',
-				'created_at' => current_time('mysql')
+				'email'         => $email,
+				'first_name'    => $first_name,
+				'last_name'     => $last_name,
+				'status'        => 'active',
+				'source'        => 'forminator',
+				'score'         => 10,
+				'lead_status'   => 'warm',
+				'subscribed_at' => current_time( 'mysql' ),
+				'created_at'    => current_time( 'mysql' ),
 			) );
-			$subscriber_id = $wpdb->insert_id;
+			$subscriber_id = absint( $wpdb->insert_id );
 		}
 
-		// Assign to list if a list ID was mapped via hidden field
-		if ( $list_id > 0 ) {
+		// Assign subscriber to list
+		if ( $list_id > 0 && $subscriber_id > 0 ) {
 			$exists = $wpdb->get_var( $wpdb->prepare(
-				"SELECT id FROM $list_map_table WHERE subscriber_id = %d AND list_id = %d",
+				"SELECT id FROM $list_sub_table WHERE subscriber_id = %d AND list_id = %d",
 				$subscriber_id, $list_id
 			) );
 
 			if ( ! $exists ) {
-				$wpdb->insert( $list_map_table, array(
+				$wpdb->insert( $list_sub_table, array(
 					'subscriber_id' => $subscriber_id,
 					'list_id'       => $list_id,
 					'status'        => 'subscribed',
-					'subscribed_at' => current_time('mysql')
+					'subscribed_at' => current_time( 'mysql' ),
+					'created_at'    => current_time( 'mysql' ),
 				) );
 			}
 		}
 
-		// Fire subscription hook so Journeys can trigger
+		// Auto-Create / Assign Form Tag
+		$tag_name = 'Forminator: ' . $form_title;
+		$tag_slug = sanitize_title( 'forminator-' . $form_id );
+		$existing_tag = $wpdb->get_row( $wpdb->prepare(
+			"SELECT id FROM $tags_table WHERE slug = %s OR name = %s LIMIT 1",
+			$tag_slug, $tag_name
+		) );
+
+		$tag_id = 0;
+		if ( $existing_tag ) {
+			$tag_id = absint( $existing_tag->id );
+		} else {
+			$wpdb->insert( $tags_table, array(
+				'name'       => $tag_name,
+				'slug'       => $tag_slug,
+				'color'      => '#62c9ff',
+				'created_at' => current_time( 'mysql' ),
+			) );
+			$tag_id = absint( $wpdb->insert_id );
+		}
+
+		if ( $tag_id > 0 && $subscriber_id > 0 ) {
+			$tag_map_exists = $wpdb->get_var( $wpdb->prepare(
+				"SELECT id FROM $subscriber_tags_table WHERE subscriber_id = %d AND tag_id = %d",
+				$subscriber_id, $tag_id
+			) );
+
+			if ( ! $tag_map_exists ) {
+				$wpdb->insert( $subscriber_tags_table, array(
+					'subscriber_id' => $subscriber_id,
+					'tag_id'        => $tag_id,
+					'created_at'    => current_time( 'mysql' ),
+				) );
+			}
+		}
+
+		// Fire subscription hook so Journeys, Webhooks, and Automations trigger seamlessly
 		do_action( 'bomb_bag_subscriber_created', $subscriber_id, $list_id );
-		do_action( 'bomb_bag_forminator_submission', $subscriber_id, $form_id );
+		do_action( 'bomb_bag_forminator_submission', $subscriber_id, $form_id, $list_id );
 	}
 }

@@ -865,6 +865,8 @@ class Xophz_Compass_Bomb_Bag_Rest {
 			$this->update_list_count($list_id);
 		}
 
+		do_action( 'bomb_bag_subscriber_created', $subscriber_id, $list_id );
+
 		return rest_ensure_response($data);
 	}
 

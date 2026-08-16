@@ -198,6 +198,7 @@ class Xophz_Compass_Bomb_Bag_Tag_Rest extends WP_REST_Controller {
 				'subscriber_id' => $subscriber_id,
 				'tag_id'        => (int) $tag_id
 			) );
+			do_action( 'bomb_bag_subscriber_tag_added', $subscriber_id, (int) $tag_id );
 		}
 
 		return $this->get_subscriber_tags( $request );

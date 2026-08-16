@@ -455,7 +455,6 @@ class Xophz_Compass_Bomb_Bag_Activator {
           </tr>
           <tr>
             <td style="background-color: #1a1a2e; padding: 40px;">
-            <td style="background-color: #1a1a2e; padding: 40px;">
               {MESSAGE}
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 32px;">
                 <tr>
@@ -836,6 +835,12 @@ class Xophz_Compass_Bomb_Bag_Activator {
           </tr>
           <tr>
             <td style="background-color: #1a1a2e; padding: 40px;">
+              {MESSAGE}
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 12px;">
+                <tr>
+                  <td style="padding: 16px 20px; background-color: rgba(255,255,255,0.03); border-radius: 8px;">
+                    <p style="margin: 0; font-size: 15px; line-height: 1.6; color: #c8cdd5;"><strong style="color: #ffffff;">Concept One:</strong> Master fundamental principles before jumping to advanced mechanics.</p>
+                  </td>
                 </tr>
               </table>
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 12px;">
@@ -848,7 +853,7 @@ class Xophz_Compass_Bomb_Bag_Activator {
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 32px;">
                 <tr>
                   <td style="padding: 16px 20px; background-color: rgba(255,255,255,0.03); border-radius: 8px;">
-                    <p style="margin: 0; font-size: 15px; line-height: 1.6; color: #c8cdd5;"><strong style="color: #ffffff;">Concept Three:</strong> Don&#39;t rush. Take your time to absorb each lesson fully.</p>
+                    <p style="margin: 0; font-size: 15px; line-height: 1.6; color: #c8cdd5;"><strong style="color: #ffffff;">Concept Three:</strong> Take your time to absorb each lesson fully.</p>
                   </td>
                 </tr>
               </table>
@@ -900,8 +905,7 @@ class Xophz_Compass_Bomb_Bag_Activator {
           <tr>
             <td style="background-color: #ffffff; border-radius: 4px; padding: 48px 44px; box-shadow: 0 1px 3px rgba(0,0,0,0.06);">
               <p style="margin: 0 0 24px; font-size: 18px; line-height: 1.8; color: #3d3d3d;">Hi {{first_name}},</p>
-              <p style="margin: 0 0 24px; font-size: 18px; line-height: 1.8; color: #3d3d3d;">I wanted to check in and see how things are going. By now, you&#39;ve had a chance to explore, and I imagine you might have a few questions.</p>
-              <p style="margin: 0 0 24px; font-size: 18px; line-height: 1.8; color: #3d3d3d;">Here&#39;s something I wish I knew when I was starting out:</p>
+              {MESSAGE}
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 28px;">
                 <tr>
                   <td style="border-left: 3px solid #b08d57; padding: 16px 24px; background-color: #faf8f5; border-radius: 0 4px 4px 0;">
@@ -909,7 +913,6 @@ class Xophz_Compass_Bomb_Bag_Activator {
                   </td>
                 </tr>
               </table>
-              <p style="margin: 0 0 32px; font-size: 18px; line-height: 1.8; color: #3d3d3d;">If you&#39;re feeling stuck, here&#39;s a resource that might help:</p>
               <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 0 auto;">
                 <tr>
                   <td style="border: 2px solid #1a1a2e; border-radius: 4px;">
@@ -922,7 +925,7 @@ class Xophz_Compass_Bomb_Bag_Activator {
           </tr>
           <tr>
             <td style="padding: 28px 40px; text-align: center;">
-              <p style="margin: 0 0 4px; font-size: 12px; color: #999; font-family: -apple-system, sans-serif;">Part of your welcome series &#183; Day 3 of 7</p>
+              <p style="margin: 0 0 4px; font-size: 12px; color: #999; font-family: -apple-system, sans-serif;">Part of your welcome series - Day 3 of 7</p>
               <a href="{{unsubscribe_url}}" style="font-size: 12px; color: #b08d57; text-decoration: underline; font-family: -apple-system, sans-serif;">Unsubscribe</a>
             </td>
           </tr>
@@ -953,9 +956,8 @@ class Xophz_Compass_Bomb_Bag_Activator {
           <tr>
             <td style="padding: 0 0 40px;">
               <p style="margin: 0 0 28px; font-size: 17px; line-height: 1.8; color: #c8cdd5;">Hi {{first_name}},</p>
-              <p style="margin: 0 0 24px; font-size: 17px; line-height: 1.8; color: #c8cdd5;">Your message goes here. No distractions, no clutter. Just you and your reader, having a conversation.</p>
-              <p style="margin: 0 0 24px; font-size: 17px; line-height: 1.8; color: #c8cdd5;">Sometimes the simplest format is the most powerful. Let your words do the work.</p>
-              <p style="margin: 0; font-size: 17px; line-height: 1.8; color: #c8cdd5;">&#8212;<br><span style="color: #ffffff;">Your Name</span></p>
+              {MESSAGE}
+              <p style="margin: 24px 0 0; font-size: 17px; line-height: 1.8; color: #c8cdd5;"><span style="color: #ffffff;">Your Name</span></p>
             </td>
           </tr>
           <tr>
@@ -996,16 +998,7 @@ class Xophz_Compass_Bomb_Bag_Activator {
           </tr>
           <tr>
             <td style="background-color: #ffffff; border-radius: 8px; padding: 44px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
-              <h1 style="margin: 0 0 24px; font-size: 24px; font-weight: 700; color: #1a1a2e; line-height: 1.3;">Your Headline Goes Here</h1>
-              <p style="margin: 0 0 20px; font-size: 16px; line-height: 1.7; color: #4a5568;">Hello {{first_name}}, start writing your email content here. This template is designed as a clean starting point that you can customize to match your brand.</p>
-              <p style="margin: 0 0 32px; font-size: 16px; line-height: 1.7; color: #4a5568;">Add sections, images, buttons, and more to build the perfect email for your audience.</p>
-              <table role="presentation" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="background-color: #1a1a2e; border-radius: 6px;">
-                    <a href="#" style="display: inline-block; padding: 14px 32px; font-size: 14px; font-weight: 600; color: #ffffff; text-decoration: none;">Call to Action</a>
-                  </td>
-                </tr>
-              </table>
+              {MESSAGE}
             </td>
           </tr>
           <tr>
