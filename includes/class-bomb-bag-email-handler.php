@@ -41,30 +41,42 @@ class Xophz_Compass_Bomb_Bag_Email_Handler {
 		));
 
 		if (!$campaign) {
-			return new WP_Error('not_found', 'Campaign not found');
+			return new WP_Error('not_found', 'Campaign not found', array('status' => 404));
 		}
 
 		if ($campaign->status === 'sent') {
-			return new WP_Error('already_sent', 'Campaign has already been sent');
+			return new WP_Error('already_sent', 'Campaign has already been sent', array('status' => 400));
+		}
+
+		if (empty($campaign->list_id)) {
+			return new WP_Error('no_list', 'Campaign does not have an assigned subscriber list', array('status' => 400));
 		}
 
 		// Get subscribers from the campaign's list, excluding subscribers on any suppression list
 		$lists_table = $wpdb->prefix . 'bomb_bag_lists';
-		$subscribers = $wpdb->get_results($wpdb->prepare(
-			"SELECT s.* FROM $subscribers_table s
-			 INNER JOIN $list_subs_table ls ON s.id = ls.subscriber_id
-			 WHERE ls.list_id = %d AND s.status = 'active'
-			   AND s.id NOT IN (
+		$suppression_subquery = "";
+		$has_suppression_col = $wpdb->get_var("SHOW COLUMNS FROM $lists_table LIKE 'is_suppression'");
+		if ($has_suppression_col) {
+			$suppression_subquery = " AND s.id NOT IN (
 			     SELECT DISTINCT ls_supp.subscriber_id 
 			     FROM $list_subs_table ls_supp 
 			     INNER JOIN $lists_table l_supp ON ls_supp.list_id = l_supp.id 
 			     WHERE l_supp.is_suppression = 1
-			   )",
+			   )";
+		}
+
+		$subscribers = $wpdb->get_results($wpdb->prepare(
+			"SELECT s.* FROM $subscribers_table s
+			 INNER JOIN $list_subs_table ls ON s.id = ls.subscriber_id
+			 WHERE ls.list_id = %d AND s.status = 'active'" . $suppression_subquery,
 			$campaign->list_id
 		));
 
 		if (empty($subscribers)) {
-			return new WP_Error('no_subscribers', 'No active subscribers in this list');
+			if (!empty($wpdb->last_error)) {
+				return new WP_Error('db_error', 'Database error: ' . $wpdb->last_error, array('status' => 500));
+			}
+			return new WP_Error('no_subscribers', 'No active subscribers in this list', array('status' => 400));
 		}
 
 		// Update campaign status

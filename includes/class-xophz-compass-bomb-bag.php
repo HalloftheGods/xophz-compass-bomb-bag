@@ -75,10 +75,25 @@ class Xophz_Compass_Bomb_Bag {
 		$this->plugin_name = 'xophz-compass-bomb-bag';
 
 		$this->load_dependencies();
+		$this->check_db_updates();
 		$this->set_locale();
 		$this->define_admin_hooks();
 		$this->define_public_hooks();
 
+	}
+
+	/**
+	 * Run database schema updates if version differs.
+	 *
+	 * @since    1.1.0
+	 * @access   private
+	 */
+	private function check_db_updates() {
+		if ( get_option( 'xophz_compass_bomb_bag_db_version' ) !== $this->version ) {
+			require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-xophz-compass-bomb-bag-activator.php';
+			Xophz_Compass_Bomb_Bag_Activator::activate();
+			update_option( 'xophz_compass_bomb_bag_db_version', $this->version );
+		}
 	}
 
 	/**
