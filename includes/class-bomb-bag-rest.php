@@ -1600,10 +1600,14 @@ class Xophz_Compass_Bomb_Bag_Rest {
 			$data['is_suppression'] = $request->get_param('is_suppression') ? 1 : 0;
 		}
 
+		if (empty($data)) {
+			return rest_ensure_response(array('success' => true, 'id' => $id));
+		}
+
 		$result = $wpdb->update($table, $data, array('id' => $id));
 
 		if ($result === false) {
-			return new WP_Error('update_failed', 'Failed to update list', array('status' => 500));
+			return new WP_Error('update_failed', 'Failed to update list: ' . $wpdb->last_error, array('status' => 500));
 		}
 
 		return rest_ensure_response(array('success' => true, 'id' => $id));
