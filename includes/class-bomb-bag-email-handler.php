@@ -407,10 +407,11 @@ class Xophz_Compass_Bomb_Bag_Email_Handler {
 			'{{first_name}}' => $email->first_name ?: 'Subscriber',
 			'{{last_name}}' => $email->last_name ?: '',
 			'{{email}}' => $email->email,
-			'{{unsubscribe_url}}' => $this->get_unsubscribe_url($email->tracking_id)
+			'{{unsubscribe_url}}' => $this->get_unsubscribe_url($email->tracking_id),
+			'{{date}}' => date('F j, Y')
 		);
 
-		return str_replace(array_keys($replacements), array_values($replacements), $content);
+		return str_ireplace(array_keys($replacements), array_values($replacements), $content);
 	}
 
 	/**
