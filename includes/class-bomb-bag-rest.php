@@ -153,6 +153,19 @@ class Xophz_Compass_Bomb_Bag_Rest {
 			)
 		));
 
+		register_rest_route( $this->namespace, '/bomb-bag/subscribers/(?P<id>\d+)/lists', array(
+			array(
+				'methods'  => 'GET',
+				'callback' => array( $this, 'get_subscriber_lists' ),
+				'permission_callback' => array( $this, 'check_admin_permission' ),
+			),
+			array(
+				'methods'  => 'PUT',
+				'callback' => array( $this, 'update_subscriber_lists' ),
+				'permission_callback' => array( $this, 'check_admin_permission' ),
+			)
+		));
+
 		register_rest_route( $this->namespace, '/bomb-bag/subscribers/import', array(
 			'methods'  => 'POST',
 			'callback' => array( $this, 'import_subscribers' ),
@@ -168,6 +181,12 @@ class Xophz_Compass_Bomb_Bag_Rest {
 		register_rest_route( $this->namespace, '/bomb-bag/subscribers/sync-wp-users', array(
 			'methods'  => 'POST',
 			'callback' => array( $this, 'sync_wp_users' ),
+			'permission_callback' => array( $this, 'check_admin_permission' ),
+		));
+
+		register_rest_route( $this->namespace, '/bomb-bag/subscribers/bulk', array(
+			'methods'  => 'POST',
+			'callback' => array( $this, 'bulk_subscriber_actions' ),
 			'permission_callback' => array( $this, 'check_admin_permission' ),
 		));
 
@@ -196,6 +215,18 @@ class Xophz_Compass_Bomb_Bag_Rest {
 				'callback' => array( $this, 'delete_list' ),
 				'permission_callback' => array( $this, 'check_admin_permission' ),
 			)
+		));
+
+		register_rest_route( $this->namespace, '/bomb-bag/lists/(?P<id>\d+)/merge', array(
+			'methods'  => 'POST',
+			'callback' => array( $this, 'merge_list' ),
+			'permission_callback' => array( $this, 'check_admin_permission' ),
+		));
+
+		register_rest_route( $this->namespace, '/bomb-bag/lists/(?P<id>\d+)/duplicate', array(
+			'methods'  => 'POST',
+			'callback' => array( $this, 'duplicate_list' ),
+			'permission_callback' => array( $this, 'check_admin_permission' ),
 		));
 
 		register_rest_route( $this->namespace, '/bomb-bag/lists/(?P<id>\d+)/scrub', array(
@@ -764,8 +795,8 @@ class Xophz_Compass_Bomb_Bag_Rest {
 		$table = $wpdb->prefix . 'bomb_bag_subscribers';
 		$junction = $wpdb->prefix . 'bomb_bag_list_subscribers';
 
-		$page = $request->get_param('page');
-		$per_page = min($request->get_param('per_page'), 100);
+		$page = $request->get_param('page') ?: 1;
+		$per_page = min($request->get_param('per_page') ?: 20, 100);
 		$offset = ($page - 1) * $per_page;
 
 		$where = array('1=1');
@@ -806,12 +837,50 @@ class Xophz_Compass_Bomb_Bag_Rest {
 		$params[] = $offset;
 		$subscribers = $wpdb->get_results($wpdb->prepare($sql, $params));
 
+		if (!empty($subscribers)) {
+			$sub_ids = wp_list_pluck($subscribers, 'id');
+			$ids_in = implode(',', array_map('absint', $sub_ids));
+
+			// Fetch list associations
+			$lists_table = $wpdb->prefix . 'bomb_bag_lists';
+			$list_rows = $wpdb->get_results("SELECT ls.subscriber_id, l.id, l.name FROM $junction ls INNER JOIN $lists_table l ON ls.list_id = l.id WHERE ls.subscriber_id IN ($ids_in)");
+			$lists_by_sub = array();
+			foreach ($list_rows as $lr) {
+				$lists_by_sub[$lr->subscriber_id][] = array('id' => (int)$lr->id, 'name' => $lr->name);
+			}
+
+			// Fetch tag associations
+			$tags_table = $wpdb->prefix . 'bomb_bag_tags';
+			$sub_tags_table = $wpdb->prefix . 'bomb_bag_subscriber_tags';
+			$tag_rows = $wpdb->get_results("SELECT st.subscriber_id, t.id, t.name, t.color FROM $sub_tags_table st INNER JOIN $tags_table t ON st.tag_id = t.id WHERE st.subscriber_id IN ($ids_in)");
+			$tags_by_sub = array();
+			foreach ($tag_rows as $tr) {
+				$tags_by_sub[$tr->subscriber_id][] = array('id' => (int)$tr->id, 'name' => $tr->name, 'color' => $tr->color);
+			}
+
+			foreach ($subscribers as &$sub) {
+				$sub->id = (int)$sub->id;
+				$sub->score = (int)($sub->score ?? 0);
+				$sub->lead_status = $sub->lead_status ?: 'cold';
+				$sub->lists = $lists_by_sub[$sub->id] ?? array();
+				$sub->tags = $tags_by_sub[$sub->id] ?? array();
+
+				if (!empty($sub->custom_fields) && is_string($sub->custom_fields)) {
+					$decoded = json_decode($sub->custom_fields, true);
+					$sub->custom_fields = is_array($decoded) ? $decoded : new stdClass();
+				} else {
+					$sub->custom_fields = new stdClass();
+				}
+			}
+			unset($sub);
+		}
+
 		return rest_ensure_response(array(
 			'subscribers' => $subscribers,
 			'total' => (int) $total,
-			'page' => $page,
-			'per_page' => $per_page,
-			'total_pages' => ceil($total / $per_page)
+			'page' => (int) $page,
+			'per_page' => (int) $per_page,
+			'total_pages' => (int) ceil($total / $per_page)
 		));
 	}
 
@@ -949,6 +1018,203 @@ class Xophz_Compass_Bomb_Bag_Rest {
 	}
 
 	/**
+	 * Get subscriber's lists.
+	 *
+	 * @since    1.0.0
+	 * @param    WP_REST_Request $request
+	 * @return   WP_REST_Response
+	 */
+	public function get_subscriber_lists( $request ) {
+		global $wpdb;
+		$subscriber_id = (int) $request['id'];
+		$lists_table = $wpdb->prefix . 'bomb_bag_lists';
+		$list_subs_table = $wpdb->prefix . 'bomb_bag_list_subscribers';
+
+		$lists = $wpdb->get_results( $wpdb->prepare(
+			"SELECT l.* FROM $lists_table l
+			 INNER JOIN $list_subs_table ls ON l.id = ls.list_id
+			 WHERE ls.subscriber_id = %d",
+			$subscriber_id
+		) );
+
+		return rest_ensure_response( $lists );
+	}
+
+	/**
+	 * Update subscriber's lists.
+	 *
+	 * @since    1.0.0
+	 * @param    WP_REST_Request $request
+	 * @return   WP_REST_Response
+	 */
+	public function update_subscriber_lists( $request ) {
+		global $wpdb;
+		$subscriber_id = (int) $request['id'];
+		$list_ids = $request->get_param( 'list_ids' );
+		$list_subs_table = $wpdb->prefix . 'bomb_bag_list_subscribers';
+
+		if ( ! is_array( $list_ids ) ) {
+			$list_ids = array();
+		}
+
+		// Get old list IDs to update counts
+		$old_list_ids = $wpdb->get_col( $wpdb->prepare(
+			"SELECT list_id FROM $list_subs_table WHERE subscriber_id = %d",
+			$subscriber_id
+		) );
+
+		// Clear existing
+		$wpdb->delete( $list_subs_table, array( 'subscriber_id' => $subscriber_id ) );
+
+		// Insert new
+		foreach ( $list_ids as $list_id ) {
+			$wpdb->insert( $list_subs_table, array(
+				'subscriber_id' => $subscriber_id,
+				'list_id'       => (int) $list_id
+			) );
+		}
+
+		// Update counts for all affected lists (both old and new)
+		$all_affected_lists = array_unique( array_merge( $old_list_ids, array_map( 'intval', $list_ids ) ) );
+		foreach ( $all_affected_lists as $list_id ) {
+			$this->update_list_count( $list_id );
+		}
+
+		return $this->get_subscriber_lists( $request );
+	}
+
+	/**
+	 * Bulk actions on subscribers (add/remove from list, add/remove tags, update status, delete).
+	 *
+	 * @since    1.1.0
+	 * @param    WP_REST_Request $request
+	 * @return   WP_REST_Response|WP_Error
+	 */
+	public function bulk_subscriber_actions( $request ) {
+		global $wpdb;
+		$table = $wpdb->prefix . 'bomb_bag_subscribers';
+		$junction = $wpdb->prefix . 'bomb_bag_list_subscribers';
+		$sub_tags_table = $wpdb->prefix . 'bomb_bag_subscriber_tags';
+
+		$action = sanitize_text_field( $request->get_param('action') );
+		$subscriber_ids = $request->get_param('subscriber_ids');
+
+		if ( empty($subscriber_ids) || !is_array($subscriber_ids) ) {
+			return new WP_Error('invalid_ids', 'No subscriber IDs provided', array('status' => 400));
+		}
+
+		$subscriber_ids = array_unique(array_filter(array_map('absint', $subscriber_ids)));
+		if ( empty($subscriber_ids) ) {
+			return new WP_Error('invalid_ids', 'No valid subscriber IDs provided', array('status' => 400));
+		}
+
+		$ids_in = implode(',', $subscriber_ids);
+		$count = count($subscriber_ids);
+
+		switch ($action) {
+			case 'add_to_list':
+				$list_ids = $request->get_param('list_ids');
+				if (empty($list_ids) && $request->get_param('list_id')) {
+					$list_ids = array($request->get_param('list_id'));
+				}
+				if (empty($list_ids) || !is_array($list_ids)) {
+					return new WP_Error('invalid_list', 'No target list specified', array('status' => 400));
+				}
+				$list_ids = array_unique(array_filter(array_map('absint', $list_ids)));
+				foreach ($list_ids as $lid) {
+					foreach ($subscriber_ids as $sid) {
+						$wpdb->query($wpdb->prepare(
+							"INSERT IGNORE INTO $junction (list_id, subscriber_id) VALUES (%d, %d)",
+							$lid, $sid
+						));
+					}
+					$this->update_list_count($lid);
+				}
+				return rest_ensure_response(array('success' => true, 'message' => "Added $count subscriber(s) to selected list(s)."));
+
+			case 'remove_from_list':
+				$list_ids = $request->get_param('list_ids');
+				if (empty($list_ids) && $request->get_param('list_id')) {
+					$list_ids = array($request->get_param('list_id'));
+				}
+				if (empty($list_ids) || !is_array($list_ids)) {
+					return new WP_Error('invalid_list', 'No target list specified', array('status' => 400));
+				}
+				$list_ids = array_unique(array_filter(array_map('absint', $list_ids)));
+				$lids_in = implode(',', $list_ids);
+				$wpdb->query("DELETE FROM $junction WHERE subscriber_id IN ($ids_in) AND list_id IN ($lids_in)");
+				foreach ($list_ids as $lid) {
+					$this->update_list_count($lid);
+				}
+				return rest_ensure_response(array('success' => true, 'message' => "Removed $count subscriber(s) from selected list(s)."));
+
+			case 'add_tags':
+				$tag_ids = $request->get_param('tag_ids');
+				if (empty($tag_ids) || !is_array($tag_ids)) {
+					return new WP_Error('invalid_tags', 'No tags specified', array('status' => 400));
+				}
+				$tag_ids = array_unique(array_filter(array_map('absint', $tag_ids)));
+				foreach ($tag_ids as $tid) {
+					foreach ($subscriber_ids as $sid) {
+						$wpdb->query($wpdb->prepare(
+							"INSERT IGNORE INTO $sub_tags_table (tag_id, subscriber_id) VALUES (%d, %d)",
+							$tid, $sid
+						));
+						do_action('bomb_bag_subscriber_tag_added', $sid, $tid);
+					}
+				}
+				return rest_ensure_response(array('success' => true, 'message' => "Added tags to $count subscriber(s)."));
+
+			case 'remove_tags':
+				$tag_ids = $request->get_param('tag_ids');
+				if (empty($tag_ids) || !is_array($tag_ids)) {
+					return new WP_Error('invalid_tags', 'No tags specified', array('status' => 400));
+				}
+				$tag_ids = array_unique(array_filter(array_map('absint', $tag_ids)));
+				$tids_in = implode(',', $tag_ids);
+				$wpdb->query("DELETE FROM $sub_tags_table WHERE subscriber_id IN ($ids_in) AND tag_id IN ($tids_in)");
+				return rest_ensure_response(array('success' => true, 'message' => "Removed tags from $count subscriber(s)."));
+
+			case 'set_status':
+				$status = sanitize_text_field($request->get_param('status'));
+				if (!in_array($status, array('active', 'unsubscribed', 'bounced', 'complained'), true)) {
+					return new WP_Error('invalid_status', 'Invalid status provided', array('status' => 400));
+				}
+				if ($status === 'unsubscribed') {
+					$wpdb->query($wpdb->prepare(
+						"UPDATE $table SET status = %s, unsubscribed_at = %s WHERE id IN ($ids_in)",
+						$status, current_time('mysql')
+					));
+				} else {
+					$wpdb->query($wpdb->prepare(
+						"UPDATE $table SET status = %s WHERE id IN ($ids_in)",
+						$status
+					));
+				}
+				return rest_ensure_response(array('success' => true, 'message' => "Updated status to '$status' for $count subscriber(s)."));
+
+			case 'delete':
+				// Find affected lists
+				$affected_lists = $wpdb->get_col("SELECT DISTINCT list_id FROM $junction WHERE subscriber_id IN ($ids_in)");
+				// Delete junction and tags
+				$wpdb->query("DELETE FROM $junction WHERE subscriber_id IN ($ids_in)");
+				$wpdb->query("DELETE FROM $sub_tags_table WHERE subscriber_id IN ($ids_in)");
+				// Delete subscribers
+				$wpdb->query("DELETE FROM $table WHERE id IN ($ids_in)");
+				// Recount affected lists
+				if (!empty($affected_lists)) {
+					foreach ($affected_lists as $lid) {
+						$this->update_list_count($lid);
+					}
+				}
+				return rest_ensure_response(array('success' => true, 'message' => "Permanently deleted $count subscriber(s)."));
+
+			default:
+				return new WP_Error('invalid_action', 'Unrecognized bulk action', array('status' => 400));
+		}
+	}
+
+	/**
 	 * Import subscribers from CSV.
 	 *
 	 * @since    1.0.0
@@ -959,18 +1225,33 @@ class Xophz_Compass_Bomb_Bag_Rest {
 		global $wpdb;
 		$table = $wpdb->prefix . 'bomb_bag_subscribers';
 		$junction = $wpdb->prefix . 'bomb_bag_list_subscribers';
+		$sub_tags_table = $wpdb->prefix . 'bomb_bag_subscriber_tags';
 
 		$subscribers = $request->get_param('subscribers');
 		$list_id = absint($request->get_param('list_id'));
+		$tag_ids = $request->get_param('tag_ids');
+		if ( !is_array($tag_ids) ) {
+			$tag_ids = array();
+		}
+		$tag_ids = array_unique(array_filter(array_map('absint', $tag_ids)));
 
 		$imported = 0;
 		$skipped = 0;
+
+		if ( !is_array($subscribers) ) {
+			return new WP_Error('invalid_data', 'No subscribers provided', array('status' => 400));
+		}
 
 		foreach ($subscribers as $sub) {
 			$email = sanitize_email($sub['email'] ?? '');
 			if (!is_email($email)) {
 				$skipped++;
 				continue;
+			}
+
+			$custom_fields_json = null;
+			if (!empty($sub['custom_fields'])) {
+				$custom_fields_json = is_string($sub['custom_fields']) ? $sub['custom_fields'] : wp_json_encode($sub['custom_fields']);
 			}
 
 			// Check for duplicate
@@ -986,6 +1267,20 @@ class Xophz_Compass_Bomb_Bag_Rest {
 						$list_id, $existing
 					));
 				}
+				// Add tags if provided
+				foreach ($tag_ids as $tid) {
+					$wpdb->query($wpdb->prepare(
+						"INSERT IGNORE INTO $sub_tags_table (tag_id, subscriber_id) VALUES (%d, %d)",
+						$tid, $existing
+					));
+				}
+				// Update custom fields if supplied and previously empty
+				if ($custom_fields_json) {
+					$wpdb->query($wpdb->prepare(
+						"UPDATE $table SET custom_fields = COALESCE(NULLIF(custom_fields, ''), %s) WHERE id = %d",
+						$custom_fields_json, $existing
+					));
+				}
 				$skipped++;
 				continue;
 			}
@@ -995,7 +1290,8 @@ class Xophz_Compass_Bomb_Bag_Rest {
 				'first_name' => sanitize_text_field($sub['first_name'] ?? ''),
 				'last_name' => sanitize_text_field($sub['last_name'] ?? ''),
 				'status' => 'active',
-				'source' => 'import'
+				'source' => 'import',
+				'custom_fields' => $custom_fields_json
 			);
 
 			$wpdb->insert($table, $data);
@@ -1006,6 +1302,16 @@ class Xophz_Compass_Bomb_Bag_Rest {
 					'list_id' => $list_id,
 					'subscriber_id' => $subscriber_id
 				));
+			}
+
+			if ($subscriber_id && !empty($tag_ids)) {
+				foreach ($tag_ids as $tid) {
+					$wpdb->insert($sub_tags_table, array(
+						'tag_id' => $tid,
+						'subscriber_id' => $subscriber_id
+					));
+					do_action('bomb_bag_subscriber_tag_added', $subscriber_id, $tid);
+				}
 			}
 
 			$imported++;
@@ -1033,8 +1339,14 @@ class Xophz_Compass_Bomb_Bag_Rest {
 		global $wpdb;
 		$table = $wpdb->prefix . 'bomb_bag_subscribers';
 		$junction = $wpdb->prefix . 'bomb_bag_list_subscribers';
+		$sub_tags_table = $wpdb->prefix . 'bomb_bag_subscriber_tags';
 
 		$list_id = absint($request->get_param('list_id'));
+		$tag_ids = $request->get_param('tag_ids');
+		if ( !is_array($tag_ids) ) {
+			$tag_ids = array();
+		}
+		$tag_ids = array_unique(array_filter(array_map('absint', $tag_ids)));
 
 		$wp_users = get_users(array(
 			'fields' => array('ID', 'user_email', 'first_name', 'last_name', 'display_name')
@@ -1078,6 +1390,12 @@ class Xophz_Compass_Bomb_Bag_Rest {
 						$list_id, $existing
 					));
 				}
+				foreach ($tag_ids as $tid) {
+					$wpdb->query($wpdb->prepare(
+						"INSERT IGNORE INTO $sub_tags_table (tag_id, subscriber_id) VALUES (%d, %d)",
+						$tid, $existing
+					));
+				}
 				$skipped++; // Treat as skipped from creation, though updated/linked
 				continue;
 			}
@@ -1098,6 +1416,16 @@ class Xophz_Compass_Bomb_Bag_Rest {
 					'list_id' => $list_id,
 					'subscriber_id' => $subscriber_id
 				));
+			}
+
+			if ($subscriber_id && !empty($tag_ids)) {
+				foreach ($tag_ids as $tid) {
+					$wpdb->insert($sub_tags_table, array(
+						'tag_id' => $tid,
+						'subscriber_id' => $subscriber_id
+					));
+					do_action('bomb_bag_subscriber_tag_added', $subscriber_id, $tid);
+				}
 			}
 
 			$imported++;
@@ -1188,9 +1516,31 @@ class Xophz_Compass_Bomb_Bag_Rest {
 	 */
 	public function get_lists() {
 		global $wpdb;
-		$table = $wpdb->prefix . 'bomb_bag_lists';
+		$lists_table = $wpdb->prefix . 'bomb_bag_lists';
+		$junction = $wpdb->prefix . 'bomb_bag_list_subscribers';
+		$subscribers_table = $wpdb->prefix . 'bomb_bag_subscribers';
 
-		$lists = $wpdb->get_results("SELECT * FROM $table ORDER BY name ASC");
+		$sql = "SELECT l.*,
+			COUNT(DISTINCT ls.subscriber_id) as subscriber_count,
+			COUNT(DISTINCT CASE WHEN s.status = 'active' THEN ls.subscriber_id END) as active_count,
+			COUNT(DISTINCT CASE WHEN s.status = 'unsubscribed' THEN ls.subscriber_id END) as unsubscribed_count,
+			COUNT(DISTINCT CASE WHEN s.status IN ('bounced', 'complained') THEN ls.subscriber_id END) as bounced_count
+		FROM $lists_table l
+		LEFT JOIN $junction ls ON l.id = ls.list_id
+		LEFT JOIN $subscribers_table s ON ls.subscriber_id = s.id
+		GROUP BY l.id
+		ORDER BY l.name ASC";
+
+		$lists = $wpdb->get_results($sql);
+		foreach ($lists as &$list) {
+			$list->id = (int)$list->id;
+			$list->subscriber_count = (int)$list->subscriber_count;
+			$list->active_count = (int)$list->active_count;
+			$list->unsubscribed_count = (int)$list->unsubscribed_count;
+			$list->bounced_count = (int)$list->bounced_count;
+			$list->is_suppression = !empty($list->is_suppression) && ((int)$list->is_suppression === 1);
+		}
+		unset($list);
 
 		return rest_ensure_response($lists);
 	}
@@ -1208,7 +1558,8 @@ class Xophz_Compass_Bomb_Bag_Rest {
 
 		$data = array(
 			'name' => sanitize_text_field($request->get_param('name')),
-			'description' => sanitize_textarea_field($request->get_param('description'))
+			'description' => sanitize_textarea_field($request->get_param('description')),
+			'is_suppression' => $request->get_param('is_suppression') ? 1 : 0
 		);
 
 		$result = $wpdb->insert($table, $data);
@@ -1219,6 +1570,10 @@ class Xophz_Compass_Bomb_Bag_Rest {
 
 		$data['id'] = $wpdb->insert_id;
 		$data['subscriber_count'] = 0;
+		$data['active_count'] = 0;
+		$data['unsubscribed_count'] = 0;
+		$data['bounced_count'] = 0;
+		$data['is_suppression'] = (bool)$data['is_suppression'];
 		return rest_ensure_response($data);
 	}
 
@@ -1241,6 +1596,9 @@ class Xophz_Compass_Bomb_Bag_Rest {
 		if ($request->get_param('description') !== null) {
 			$data['description'] = sanitize_textarea_field($request->get_param('description'));
 		}
+		if ($request->get_param('is_suppression') !== null) {
+			$data['is_suppression'] = $request->get_param('is_suppression') ? 1 : 0;
+		}
 
 		$result = $wpdb->update($table, $data, array('id' => $id));
 
@@ -1249,6 +1607,111 @@ class Xophz_Compass_Bomb_Bag_Rest {
 		}
 
 		return rest_ensure_response(array('success' => true, 'id' => $id));
+	}
+
+	/**
+	 * Merge source list into a target list.
+	 *
+	 * @since    1.1.0
+	 * @param    WP_REST_Request $request
+	 * @return   WP_REST_Response|WP_Error
+	 */
+	public function merge_list( $request ) {
+		global $wpdb;
+		$lists_table = $wpdb->prefix . 'bomb_bag_lists';
+		$junction = $wpdb->prefix . 'bomb_bag_list_subscribers';
+
+		$source_id = absint($request->get_param('id'));
+		$target_id = absint($request->get_param('target_list_id'));
+		$delete_source = (bool)$request->get_param('delete_source');
+
+		if (!$source_id || !$target_id || $source_id === $target_id) {
+			return new WP_Error('invalid_merge', 'Invalid source or target list ID', array('status' => 400));
+		}
+
+		$source_exists = $wpdb->get_var($wpdb->prepare("SELECT id FROM $lists_table WHERE id = %d", $source_id));
+		$target_exists = $wpdb->get_var($wpdb->prepare("SELECT id FROM $lists_table WHERE id = %d", $target_id));
+
+		if (!$source_exists || !$target_exists) {
+			return new WP_Error('not_found', 'Source or Target list not found', array('status' => 404));
+		}
+
+		// Move/Copy subscribers from source list into target list
+		$wpdb->query($wpdb->prepare(
+			"INSERT IGNORE INTO $junction (list_id, subscriber_id)
+			 SELECT %d, subscriber_id FROM $junction WHERE list_id = %d",
+			$target_id, $source_id
+		));
+
+		// Remove subscribers from source list
+		$wpdb->delete($junction, array('list_id' => $source_id));
+
+		if ($delete_source) {
+			$wpdb->delete($lists_table, array('id' => $source_id));
+		} else {
+			$this->update_list_count($source_id);
+		}
+
+		$this->update_list_count($target_id);
+
+		return rest_ensure_response(array(
+			'success' => true,
+			'message' => 'Lists successfully merged.'
+		));
+	}
+
+	/**
+	 * Duplicate a list with option to copy subscribers.
+	 *
+	 * @since    1.1.0
+	 * @param    WP_REST_Request $request
+	 * @return   WP_REST_Response|WP_Error
+	 */
+	public function duplicate_list( $request ) {
+		global $wpdb;
+		$lists_table = $wpdb->prefix . 'bomb_bag_lists';
+		$junction = $wpdb->prefix . 'bomb_bag_list_subscribers';
+
+		$source_id = absint($request->get_param('id'));
+		$source = $wpdb->get_row($wpdb->prepare("SELECT * FROM $lists_table WHERE id = %d", $source_id));
+
+		if (!$source) {
+			return new WP_Error('not_found', 'Source list not found', array('status' => 404));
+		}
+
+		$new_name = sanitize_text_field($request->get_param('name'));
+		if (empty($new_name)) {
+			$new_name = $source->name . ' (Copy)';
+		}
+
+		$include_members = (bool)$request->get_param('include_members');
+
+		$wpdb->insert($lists_table, array(
+			'name' => $new_name,
+			'description' => $source->description,
+			'is_suppression' => !empty($source->is_suppression) ? 1 : 0,
+			'subscriber_count' => 0
+		));
+		$new_list_id = $wpdb->insert_id;
+
+		if ($include_members && $new_list_id) {
+			$wpdb->query($wpdb->prepare(
+				"INSERT INTO $junction (list_id, subscriber_id)
+				 SELECT %d, subscriber_id FROM $junction WHERE list_id = %d",
+				$new_list_id, $source_id
+			));
+			$this->update_list_count($new_list_id);
+		}
+
+		$new_list = $wpdb->get_row($wpdb->prepare("SELECT * FROM $lists_table WHERE id = %d", $new_list_id));
+		$new_list->id = (int)$new_list->id;
+		$new_list->subscriber_count = (int)$new_list->subscriber_count;
+		$new_list->active_count = $include_members ? (int)$new_list->subscriber_count : 0;
+		$new_list->unsubscribed_count = 0;
+		$new_list->bounced_count = 0;
+		$new_list->is_suppression = !empty($new_list->is_suppression) && ((int)$new_list->is_suppression === 1);
+
+		return rest_ensure_response($new_list);
 	}
 
 	/**

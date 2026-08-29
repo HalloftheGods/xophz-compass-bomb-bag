@@ -48,11 +48,18 @@ class Xophz_Compass_Bomb_Bag_Email_Handler {
 			return new WP_Error('already_sent', 'Campaign has already been sent');
 		}
 
-		// Get subscribers from the campaign's list
+		// Get subscribers from the campaign's list, excluding subscribers on any suppression list
+		$lists_table = $wpdb->prefix . 'bomb_bag_lists';
 		$subscribers = $wpdb->get_results($wpdb->prepare(
 			"SELECT s.* FROM $subscribers_table s
 			 INNER JOIN $list_subs_table ls ON s.id = ls.subscriber_id
-			 WHERE ls.list_id = %d AND s.status = 'active'",
+			 WHERE ls.list_id = %d AND s.status = 'active'
+			   AND s.id NOT IN (
+			     SELECT DISTINCT ls_supp.subscriber_id 
+			     FROM $list_subs_table ls_supp 
+			     INNER JOIN $lists_table l_supp ON ls_supp.list_id = l_supp.id 
+			     WHERE l_supp.is_suppression = 1
+			   )",
 			$campaign->list_id
 		));
 

@@ -90,6 +90,7 @@ class Xophz_Compass_Bomb_Bag_Activator {
 			name VARCHAR(255) NOT NULL,
 			description TEXT,
 			subscriber_count INT UNSIGNED DEFAULT 0,
+			is_suppression TINYINT(1) DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			PRIMARY KEY (id)
