@@ -99,3 +99,13 @@ function run_xophz_compass_bomb_bag() {
   }
 }
 add_action( 'plugins_loaded', 'run_xophz_compass_bomb_bag' );
+
+function xophz_compass_bomb_bag_action_links( $links ) {
+  $settings_link = '<a href="admin.php?page=xophz-compass#/bomb-bag/settings">' . __( 'Settings', 'xophz-compass-bomb-bag' ) . '</a>';
+  $new_links = array( 'settings' => $settings_link );
+  foreach ( $links as $key => $value ) {
+    $new_links[ $key ] = $value;
+  }
+  return $new_links;
+}
+add_filter( 'plugin_action_links_' . plugin_basename( __FILE__ ), 'xophz_compass_bomb_bag_action_links' );
