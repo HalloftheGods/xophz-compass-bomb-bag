@@ -8,7 +8,7 @@
  * registers the activation and deactivation functions, and defines a function
  * that starts the plugin.
  *
- * @link              http://example.com
+ * @link              https://youmeos.com
  * @since             1.0.0
  * @package           Xophz_Compass_Bomb_Bag
  *
@@ -20,7 +20,7 @@
  * Description:       Send email blasts, schedule Newsletter campaigns, etc. 
  * Version:           26.9.3-1289
  * Author:            Hall of the Gods, Inc.
- * Author URI:        http://example.com/
+ * Author URI:        https://youmeos.com/
  * License:           GPL-2.0+
  * License URI:       http://www.gnu.org/licenses/gpl-2.0.txt
  * Text Domain:       xophz-compass-bomb-bag
@@ -54,8 +54,7 @@ function activate_xophz_compass_bomb_bag() {
  * This action is documented in includes/class-xophz-compass-bomb-bag-deactivator.php
  */
 function deactivate_xophz_compass_bomb_bag() {
-  require_once plugin_dir_path( __FILE__ ) . 'includes/class-xophz-compass-bomb-bag-deactivator.php';
-  Xophz_Compass_Bomb_Bag_Deactivator::deactivate();
+	Xophz_Compass_Bomb_Bag::deactivate();
 }
 
 register_activation_hook( __FILE__, 'activate_xophz_compass_bomb_bag' );
