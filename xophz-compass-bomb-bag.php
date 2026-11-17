@@ -19,8 +19,8 @@
  * Plugin URI:        https://github.com/HalloftheGods/xophz-compass-bomb-bag
  * Description:       Send email blasts, schedule Newsletter campaigns, etc. 
  * Version:           26.9.4
- * Author:            Hall of the Gods, Inc.
- * Author URI:        https://youmeos.com/
+ * Author:            My Compass Consulting
+ * Author URI:        https://mycompassconsulting.com/
  * License:           GPL-2.0+
  * License URI:       http://www.gnu.org/licenses/gpl-2.0.txt
  * Text Domain:       xophz-compass-bomb-bag
