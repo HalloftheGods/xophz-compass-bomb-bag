@@ -188,8 +188,25 @@ class Xophz_Compass_Bomb_Bag_Template_Rest {
 		$templates = $method->invoke( null );
 
 		$inserted = 0;
+		$updated  = 0;
 		foreach ( $templates as $t ) {
-			$exists = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM $table WHERE name = %s", $t['name'] ) );
+			$existing = $wpdb->get_row( $wpdb->prepare( "SELECT id, is_default FROM $table WHERE name = %s", $t['name'] ) );
+			$exists   = $existing ? $existing->id : null;
+
+			// Refresh built-in designs in place; never touch a user's own template.
+			if ( $existing && (int) $existing->is_default === 1 ) {
+				$wpdb->update(
+					$table,
+					array(
+						'description' => $t['description'],
+						'category'    => $t['category'],
+						'content'     => $t['content'],
+					),
+					array( 'id' => $existing->id )
+				);
+				$updated++;
+			}
+
 			if ( ! $exists ) {
 				$wpdb->insert( $table, array(
 					'name'        => $t['name'],
@@ -202,6 +219,6 @@ class Xophz_Compass_Bomb_Bag_Template_Rest {
 			}
 		}
 
-		return rest_ensure_response( array( 'success' => true, 'seeded' => $inserted ) );
+		return rest_ensure_response( array( 'success' => true, 'seeded' => $inserted, 'updated' => $updated ) );
 	}
 }
